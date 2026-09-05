@@ -322,6 +322,12 @@ const methods: Record<string, (...args: any[]) => any> = {
     return { roomId: room.id }
   },
 
+  'session.ensurePersonalVault': async () => {
+    const room = await requireSession().ensurePersonalVault()
+    wireRoom(room)
+    return { roomId: room.id }
+  },
+
   'session.joinRoomByKey': async (name: string, key: string) => {
     const room = await requireSession().joinRoomByKey(name, key)
     wireRoom(room)

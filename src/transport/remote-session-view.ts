@@ -241,6 +241,18 @@ export class RemoteSessionView implements SessionView {
     return this.getOrCreateRoom(res.roomId, res.state)
   }
 
+  async ensurePersonalVault(): Promise<RoomView> {
+    const res = await this.rpcClient.call<{
+      roomId: string
+      state?: Partial<RemoteRoomState>
+      inviteLink?: string
+      bookmarks?: RoomBookmark[]
+    }>('session.ensurePersonalVault')
+    if (res.inviteLink) this.inviteLinks.set(res.roomId, res.inviteLink)
+    if (res.bookmarks) this.bookmarks = res.bookmarks
+    return this.getOrCreateRoom(res.roomId, res.state)
+  }
+
   async joinRoomByKey(
     name: string,
     invite: string,

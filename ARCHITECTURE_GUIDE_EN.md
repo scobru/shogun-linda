@@ -236,3 +236,27 @@ Run with `npm test`, or `LINDA_TEST_DHT=public npm test` to put the same asserti
 2. The recipient pastes the link and dispatches a contact request (`sendContactRequest`).
 3. The request surfaces in the recipient's **Contacts** list as an incoming request.
 4. Accepting the request (`respondToContact`) marks the contact as `accepted` on both clients, exchanges writer keys for the 1:1 room, and opens the private, end-to-end encrypted chat.
+
+### H. Sovereign Personal Vault (Single-Writer Encrypted Space)
+1. Every identity is automatically provisioned with an encrypted **Personal Vault** (`isVault: true`, `favorite: true`), idempotently verified or initialized at startup via `session.ensurePersonalVault()`.
+2. Unlike group or 1:1 rooms, the Personal Vault is a **single-writer** Autobase space: only the local identity possesses write authority. With zero remote writers to coordinate with, append operations are instantaneous, conflict-free, and fully offline-capable.
+3. In local storage (`RoomBookmark`), the `isVault: true` attribute guarantees that the vault is pinned to the top of the sidebar with a prominent gold `🔐 VAULT` badge.
+4. During P2P device pairing (`getPairingSnapshot` / `importPairingSnapshot`), both `isVault` and `favorite` flags are preserved and replicated to secondary devices, ensuring private notes, passwords, and personal files remain synchronized across all trusted hardware.
+
+### I. Adaptive Message Views (Chat, Mailbox, Notes, Files)
+1. An Autobase room maintains an immutable, causal log of messages (`body`, `file`, `reactions`, `timestamp`).
+2. The presentation layer (`app-shell.ts`) projects this unified data stream into 4 specialized operational perspectives via the header navigation switcher:
+   - **Chat**: Standard conversational bubble stream for real-time messaging, emoji reactions, and voice notes.
+   - **Mailbox**: Asynchronous dual-pane layout inspired by desktop email clients (inbox message list with author, preview snippet, and time on the left; formal reading pane with E2E encryption badge, sender/recipient metadata, attachments, and quick-reply composer on the right).
+   - **Notes / Document**: Distraction-free continuous document stream without speech bubbles, organized by date dividers. Tailored for long-form notes, research records, and Personal Vault journal entries.
+   - **Files**: Replicated Hyperdrive shared file browser with search, download, and range-seek media streaming.
+3. This multi-view design requires **zero backend schema migrations**: all views are pure functional renderer projections of the identical underlying encrypted Autobase log.
+
+### J. LindaWeb Roadmap: Zero-Knowledge WebSocket Bridge & Headless Companion
+1. **The Browser Constraint**: Web browsers cannot execute raw UDP/TCP sockets or join the Hyperswarm DHT due to security sandbox restrictions; WebRTC requires external STUN/TURN relays.
+2. **The Sovereign Solution**: A lightweight headless companion daemon (`linda-daemon` or the local desktop client itself) acts as a local or remote gateway by exposing an authenticated WebSocket endpoint (`linda-bridge`).
+3. **Zero-Knowledge Wire Security**:
+   - The user's 12-word BIP39 mnemonic and Ed25519 identity keypairs remain strictly inside the browser (IndexedDB protected via WebCrypto).
+   - The web client compiles cryptographic primitives to WASM (`libsodium-wrappers`), encrypting and decrypting all messages locally on the client device.
+   - The WebSocket bridge exclusively transports encrypted ciphertext frames and Hypercore replication streams, with zero visibility into message payloads or capability to forge signatures.
+

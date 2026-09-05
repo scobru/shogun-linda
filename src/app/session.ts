@@ -679,6 +679,52 @@ export class Session {
     return room
   }
 
+  /**
+   * Ensures the user's sovereign Personal Vault exists. If not found among bookmarks,
+   * creates a private single-writer room flagged with `isVault: true` and `favorite: true`.
+   * If already exists and open in `this.rooms`, returns it; if closed, opens and returns it.
+   */
+  async ensurePersonalVault(): Promise<Room> {
+    const bookmarks = this.listBookmarks()
+    let vaultBookmark = bookmarks.find((b) => b.isVault)
+    if (!vaultBookmark) {
+      // Check if an existing room was named "Personal Vault" (e.g. prior release)
+      vaultBookmark = bookmarks.find((b) => b.name.trim().toLowerCase() === 'personal vault')
+      if (vaultBookmark) {
+        vaultBookmark = { ...vaultBookmark, isVault: true, favorite: true }
+        await this.saveBookmark(vaultBookmark)
+      }
+    }
+
+    if (vaultBookmark) {
+      const openRoom = this.rooms.get(vaultBookmark.id)
+      if (openRoom) return openRoom
+      const bootstrapKey = b4a.from(vaultBookmark.bootstrapKey, 'hex')
+      const initialKeys = await this.profileStore.getRoomKeys(vaultBookmark.id)
+      const room = await this.openRoomWithRetry(vaultBookmark.id, bootstrapKey, initialKeys, vaultBookmark.storeId)
+      this.setupRoomKeyPersistence(room)
+      await this.joinTopic(room)
+      this.trackRoom(room)
+      return room
+    }
+
+    const room = await this.createRoom(
+      'Personal Vault',
+      false,
+      'vault',
+      'Your sovereign P2P personal storage & notes'
+    )
+    const createdBookmark = this.bookmarks.get(room.id)
+    if (createdBookmark) {
+      await this.saveBookmark({
+        ...createdBookmark,
+        isVault: true,
+        favorite: true
+      })
+    }
+    return room
+  }
+
   /** Broadcast is replicated state, not a bookmark field: only the owner may change it and every
    * peer derives it from the log, so there is nothing to mirror locally. */
   async setRoomBroadcast(roomId: string, enabled: boolean): Promise<void> {
@@ -1207,7 +1253,9 @@ export class Session {
         bootstrapKey: bookmark.bootstrapKey,
         avatar: bookmark.avatar,
         description: bookmark.description,
-        storeId: randomId(8)
+        storeId: randomId(8),
+        isVault: bookmark.isVault ? true : undefined,
+        favorite: bookmark.isVault ? true : undefined
       }
       this.bookmarks.set(local.id, local)
       await this.profileStore.saveBookmark(local)

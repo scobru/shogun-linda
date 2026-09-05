@@ -28,6 +28,8 @@ export interface RoomBookmark {
    * at or before this point are hidden from the message list; the replicated log itself is untouched, so
    * they're still there for other members/devices and reappear here if this bookmark is ever reset. */
   clearedAt?: number
+  /** Flags this room as the user's sovereign Personal Vault for private files and notes. */
+  isVault?: boolean
 }
 
 

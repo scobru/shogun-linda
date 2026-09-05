@@ -226,7 +226,10 @@ const ICONS = {
   chatSmall: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`,
   shieldSmall: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`,
   hash: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>`,
-  history: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>`
+  history: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>`,
+  mail: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>`,
+  document: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>`,
+  vault: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="7" x2="12" y2="9"/><line x1="12" y1="15" x2="12" y2="17"/><line x1="7" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="17" y2="12"/></svg>`
 }
 
 type View = 'create' | 'unlock' | 'recover' | 'reveal' | 'pair' | 'app'
@@ -254,7 +257,8 @@ export class AppShell extends HTMLElement {
   private messageFilter = ''
   /** Non-null while the message list is narrowed to one hashtag — see renderHashtagBar. */
   private activeHashtag: string | null = null
-  private activeRoomTab: 'chat' | 'files' = 'chat'
+  private activeRoomTab: 'chat' | 'mailbox' | 'document' | 'files' = 'chat'
+  private selectedMailboxMessageId: string | null = null
   private fileSearchQuery = ''
   private editingMessageId: string | null = null
   private activeFilter: FilterTab = 'all'
@@ -705,6 +709,11 @@ export class AppShell extends HTMLElement {
       this.pendingPairingSnapshot = undefined
     }
     await this.session.reopenBookmarkedRooms()
+    try {
+      await this.session.ensurePersonalVault()
+    } catch (err) {
+      console.warn('[app-shell] could not ensure personal vault:', (err as Error).message)
+    }
 
     // Second default room — joined alongside Linda News but not auto-opened, it just needs to be
     // in the sidebar for a new user.
@@ -845,7 +854,15 @@ export class AppShell extends HTMLElement {
     // unopened. claimContactInvite clears the flag (renaming the room in the same stroke) the
     // moment the other side joins, and onBookmarksChange re-renders this view when that happens —
     // same join flow, it just isn't visible until there are two people in it.
-    const allBookmarks = this.session.listBookmarks().filter((b) => !b.contactInvite)
+    const allBookmarks = this.session.listBookmarks()
+      .filter((b) => !b.contactInvite)
+      .sort((a, b) => {
+        if (a.isVault && !b.isVault) return -1
+        if (!a.isVault && b.isVault) return 1
+        if (a.favorite && !b.favorite) return -1
+        if (!a.favorite && b.favorite) return 1
+        return 0
+      })
 
     const filteredBookmarks = allBookmarks.filter((b) => this.matchesSidebarFilter(b))
 
@@ -1204,7 +1221,7 @@ export class AppShell extends HTMLElement {
 
     const lastMsgInfo = this.lastMessages.get(b.id)
     const lastAuthor = lastMsgInfo ? `${lastMsgInfo.author}: ` : ''
-    const lastSnippet = lastMsgInfo ? lastMsgInfo.text : (b.description || (contact ? 'Direct Sovereign Chat' : 'E2E Sovereign Room'))
+    const lastSnippet = lastMsgInfo ? lastMsgInfo.text : (b.isVault ? 'Private personal vault & sovereign storage' : (b.description || (contact ? 'Direct Sovereign Chat' : 'E2E Sovereign Room')))
     const timeFormatted = lastMsgInfo ? formatRelativeTime(lastMsgInfo.time) : ''
     const unread = this.isRoomUnread(b)
 
@@ -1218,7 +1235,9 @@ export class AppShell extends HTMLElement {
           <div class="room-item-top-row">
             <div class="room-item-name-group">
               <span class="room-item-name">${escapeHtml(roomName)}</span>
-              <span class="verified-badge" title="End-to-End Encrypted">${ICONS.verified}</span>
+              ${b.isVault
+                ? `<span class="vault-badge" title="Personal Sovereign Vault">🔐 VAULT</span>`
+                : `<span class="verified-badge" title="End-to-End Encrypted">${ICONS.verified}</span>`}
             </div>
             ${timeFormatted ? `<span class="room-item-time">${timeFormatted}</span>` : ''}
           </div>
@@ -1657,9 +1676,11 @@ export class AppShell extends HTMLElement {
         </div>
 
         ${`
-          <div class="room-header-tabs" style="display:inline-flex;align-items:center;gap:0.3rem;background:var(--bg-subtle);border:1px solid var(--border);border-radius:20px;padding:2px 4px;margin-left:auto;margin-right:0.75rem;">
-            <button class="room-tab-pill ${this.activeRoomTab === 'chat' ? 'active' : ''}" id="roomTabChat" style="background:${this.activeRoomTab === 'chat' ? 'var(--accent)' : 'transparent'};color:${this.activeRoomTab === 'chat' ? '#fff' : 'var(--text-dim)'};border:none;padding:0.25rem 0.65rem;border-radius:16px;font-size:0.75rem;font-weight:600;cursor:pointer;">${ICONS.chatSmall} Chat</button>
-            <button class="room-tab-pill ${this.activeRoomTab === 'files' ? 'active' : ''}" id="roomTabFiles" style="background:${this.activeRoomTab === 'files' ? 'var(--accent)' : 'transparent'};color:${this.activeRoomTab === 'files' ? '#fff' : 'var(--text-dim)'};border:none;padding:0.25rem 0.65rem;border-radius:16px;font-size:0.75rem;font-weight:600;cursor:pointer;">${ICONS.folder} Files</button>
+          <div class="room-header-tabs" style="display:inline-flex;align-items:center;gap:0.25rem;background:var(--bg-subtle);border:1px solid var(--border);border-radius:20px;padding:2px 4px;margin-left:auto;margin-right:0.75rem;">
+            <button class="room-tab-pill ${this.activeRoomTab === 'chat' ? 'active' : ''}" id="roomTabChat" style="background:${this.activeRoomTab === 'chat' ? 'var(--accent)' : 'transparent'};color:${this.activeRoomTab === 'chat' ? '#fff' : 'var(--text-dim)'};border:none;padding:0.25rem 0.6rem;border-radius:16px;font-size:0.75rem;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:0.3rem;">${ICONS.chatSmall} Chat</button>
+            <button class="room-tab-pill ${this.activeRoomTab === 'mailbox' ? 'active' : ''}" id="roomTabMailbox" style="background:${this.activeRoomTab === 'mailbox' ? 'var(--accent)' : 'transparent'};color:${this.activeRoomTab === 'mailbox' ? '#fff' : 'var(--text-dim)'};border:none;padding:0.25rem 0.6rem;border-radius:16px;font-size:0.75rem;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:0.3rem;">${ICONS.mail} Mailbox</button>
+            <button class="room-tab-pill ${this.activeRoomTab === 'document' ? 'active' : ''}" id="roomTabDoc" style="background:${this.activeRoomTab === 'document' ? 'var(--accent)' : 'transparent'};color:${this.activeRoomTab === 'document' ? '#fff' : 'var(--text-dim)'};border:none;padding:0.25rem 0.6rem;border-radius:16px;font-size:0.75rem;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:0.3rem;">${ICONS.document} Notes</button>
+            <button class="room-tab-pill ${this.activeRoomTab === 'files' ? 'active' : ''}" id="roomTabFiles" style="background:${this.activeRoomTab === 'files' ? 'var(--accent)' : 'transparent'};color:${this.activeRoomTab === 'files' ? '#fff' : 'var(--text-dim)'};border:none;padding:0.25rem 0.6rem;border-radius:16px;font-size:0.75rem;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:0.3rem;">${ICONS.folder} Files</button>
           </div>
         `}
 
@@ -1724,7 +1745,7 @@ export class AppShell extends HTMLElement {
             <div class="composer-capsule">
               <button class="composer-plus-btn" id="attachBtn" title="Attach file or image via Hyperdrive">+</button>
               <input id="file" type="file" style="display:none" />
-              <input id="body" placeholder="Message" autofocus value="${this.editingMessage ? escapeHtml(this.editingMessage.body) : ''}" />
+              <input id="body" placeholder="${this.activeRoomTab === 'mailbox' ? 'Quick reply or write message...' : (this.activeRoomTab === 'document' ? 'Append a note or markdown...' : 'Message')}" autofocus value="${this.editingMessage ? escapeHtml(this.editingMessage.body) : ''}" />
               <div class="composer-tools-group">
                 <button class="composer-tool-btn" id="emojiQuickBtn" title="Emojis">${ICONS.smile}</button>
                 <button class="composer-tool-btn" id="recordVoiceBtn" title="Record a voice message">${ICONS.mic}</button>
@@ -1745,7 +1766,17 @@ export class AppShell extends HTMLElement {
 
     this.querySelector('#roomTabChat')?.addEventListener('click', () => {
       this.activeRoomTab = 'chat'
-    this.activeHashtag = null
+      this.activeHashtag = null
+      this.renderApp()
+    })
+    this.querySelector('#roomTabMailbox')?.addEventListener('click', () => {
+      this.activeRoomTab = 'mailbox'
+      this.activeHashtag = null
+      this.renderApp()
+    })
+    this.querySelector('#roomTabDoc')?.addEventListener('click', () => {
+      this.activeRoomTab = 'document'
+      this.activeHashtag = null
       this.renderApp()
     })
     this.querySelector('#roomTabFiles')?.addEventListener('click', () => {
@@ -1852,6 +1883,7 @@ export class AppShell extends HTMLElement {
     this.activeRoom = room
     this.activeRoomName = name
     this.activeRoomTab = 'chat'
+    this.selectedMailboxMessageId = null
     this.fileSearchQuery = ''
     this.typingPeers.clear()
     this.readBy.clear()
@@ -1961,19 +1993,28 @@ export class AppShell extends HTMLElement {
     }
     this.renderHashtagBar(all)
 
-    const htmlChunks: string[] = []
+    container.classList.toggle('mailbox-mode', this.activeRoomTab === 'mailbox')
+    container.classList.toggle('document-mode', this.activeRoomTab === 'document')
 
-    for (let i = 0; i < visible.length; i++) {
-      const msg = visible[i]!
-      const prev = visible[i - 1]
-      const next = visible[i + 1]
-      htmlChunks.push(this.renderMessageRow(msg, prev, next, byId))
+    let newHtml = ''
+    if (this.activeRoomTab === 'mailbox') {
+      newHtml = this.renderMailboxView(visible, byId)
+    } else if (this.activeRoomTab === 'document') {
+      newHtml = this.renderDocumentView(visible, byId)
+    } else {
+      const htmlChunks: string[] = []
+      for (let i = 0; i < visible.length; i++) {
+        const msg = visible[i]!
+        const prev = visible[i - 1]
+        const next = visible[i + 1]
+        htmlChunks.push(this.renderMessageRow(msg, prev, next, byId))
+      }
+      newHtml = htmlChunks.join('')
     }
 
-    const newHtml = htmlChunks.join('')
     if (container.innerHTML !== newHtml) {
       container.innerHTML = newHtml
-      if (wasNearBottom) container.scrollTop = container.scrollHeight
+      if (wasNearBottom && this.activeRoomTab !== 'mailbox') container.scrollTop = container.scrollHeight
       this.updateScrollToBottomBtn()
       this.wireMessageEvents(container, byId)
     } else {
@@ -1987,6 +2028,13 @@ export class AppShell extends HTMLElement {
   private wireMessageEvents(container: Element, byId: Map<string, ChatMessage>): void {
     const room = this.activeRoom
     if (!room) return
+
+    container.querySelectorAll<HTMLElement>('[data-mailbox-select]').forEach((el) => {
+      el.addEventListener('click', () => {
+        this.selectedMailboxMessageId = el.dataset.mailboxSelect!
+        void this.renderMessages()
+      })
+    })
 
     container.querySelectorAll<HTMLButtonElement>('[data-play-audio]').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -2040,6 +2088,8 @@ export class AppShell extends HTMLElement {
         this.editingMessage = null
         this.replyingTo = byId.get(btn.dataset.reply!) ?? null
         this.renderApp()
+        const bodyInput = this.querySelector('#body') as HTMLInputElement | null
+        bodyInput?.focus()
       })
     })
 
@@ -2088,6 +2138,270 @@ export class AppShell extends HTMLElement {
     })
   }
 
+  private renderAttachmentCard(message: ChatMessage): string {
+    if (!message.file || message.deleted) return ''
+    const isVideo = message.file.mimeType
+      ? message.file.mimeType.startsWith('video/')
+      : /\.(mp4|m4v|mov|webm|mkv|avi)$/i.test(message.file.name)
+    const isImg = !isVideo && (message.file.thumbnail || message.file.mimeType?.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(message.file.name))
+    const isAudio = !isImg && !isVideo && (message.file.mimeType?.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac|flac|opus)$/i.test(message.file.name))
+    if (isAudio) {
+      const isVoice = /^voice-\d{4}-/.test(message.file.name)
+      return isVoice ? `
+        <div class="voice-chip" data-audio-slot="${message.id}">
+          <button class="voice-play-btn" data-play-audio="${message.id}" data-drive-key="${message.file.driveKey}" data-path="${message.file.path}" title="Play voice message">${ICONS.play}</button>
+          <span class="voice-wave" aria-hidden="true">${'<i></i>'.repeat(14)}</span>
+          <span class="voice-label">Voice message</span>
+        </div>
+      ` : `
+        <div class="file-chip" style="display:flex;flex-direction:column;gap:0.4rem;padding:0.5rem;background:var(--bg-panel);border:1px solid var(--border-card);border-radius:4px;margin-top:0.3rem;min-width:220px;">
+          <div style="font-weight:600;font-size:0.8rem;">${escapeHtml(message.file.name)}</div>
+          <div data-audio-slot="${message.id}">
+            <button class="primary" style="padding:0.25rem 0.6rem;font-size:0.75rem;" data-play-audio="${message.id}" data-drive-key="${message.file.driveKey}" data-path="${message.file.path}">${ICONS.play} Play</button>
+          </div>
+        </div>
+      `
+    } else if (isImg) {
+      const thumbSrc = message.file.thumbnail || this.remoteImageCache.get(`${message.file.driveKey}:${message.file.path}`) || ''
+      return `
+        <div class="msg-image-card">
+          <div class="msg-image-thumb-wrap">
+            <img src="${thumbSrc || 'data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'100\' height=\'100\' fill=\'%231f293d\'><rect width=\'100\' height=\'100\'/><text x=\'50\' y=\'55\' fill=\'%2364748b\' font-size=\'14\' text-anchor=\'middle\'>Loading…</text></svg>'}" alt="${escapeHtml(message.file.name)}" class="msg-image-thumb" />
+          </div>
+          <div class="msg-image-footer">
+            <span class="file-name" style="font-size:0.75rem;color:var(--text-dim);">${escapeHtml(message.file.name)}</span>
+            <button class="primary" style="padding:0.25rem 0.55rem;font-size:0.7rem;" data-download="${message.file.driveKey}" data-name="${message.file.name}" data-path="${message.file.path}">Download</button>
+          </div>
+        </div>
+      `
+    } else if (isVideo) {
+      const poster = message.file.thumbnail
+      return `
+        <div class="msg-video-card" data-play-video="${message.file.driveKey}" data-name="${escapeHtml(message.file.name)}" data-path="${message.file.path}">
+          <div class="msg-video-frame">
+            ${poster ? `<img src="${poster}" alt="${escapeHtml(message.file.name)}" class="msg-video-poster" />` : ''}
+            <span class="msg-video-play">${ICONS.play}</span>
+          </div>
+          <div class="msg-video-footer">
+            <span class="file-name">${escapeHtml(message.file.name)}</span>
+            <span class="msg-video-size">${formatBytes(message.file.size)}</span>
+            <button class="ghost icon-sm" style="padding:0.15rem 0.35rem;" data-download="${message.file.driveKey}" data-name="${escapeHtml(message.file.name)}" data-path="${message.file.path}" title="Save video">${ICONS.download}</button>
+          </div>
+        </div>
+      `
+    } else {
+      return `
+        <div class="file-chip" style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem;background:var(--bg-panel);border:1px solid var(--border-card);border-radius:4px;margin-top:0.3rem;">
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600;font-size:0.8rem;">${escapeHtml(message.file.name)}</div>
+            <div style="color:var(--text-muted);font-size:0.7rem;">${formatBytes(message.file.size)} • P2P</div>
+          </div>
+          <button class="primary" style="padding:0.25rem 0.6rem;font-size:0.75rem;" data-download="${message.file.driveKey}" data-name="${message.file.name}" data-path="${message.file.path}">Download</button>
+        </div>
+      `
+    }
+  }
+
+  private renderMailboxView(messages: ChatMessage[], byId: Map<string, ChatMessage>): string {
+    if (messages.length === 0) {
+      return `
+        <div class="mailbox-empty-state">
+          <div class="mailbox-empty-icon">${ICONS.mail}</div>
+          <h3>No messages in mailbox</h3>
+          <p>Messages and announcements sent to this room will appear here in letter format.</p>
+        </div>
+      `
+    }
+
+    const sorted = [...messages].sort((a, b) => b.timestamp - a.timestamp)
+    const selectedId = this.selectedMailboxMessageId && byId.has(this.selectedMailboxMessageId)
+      ? this.selectedMailboxMessageId
+      : sorted[0]!.id
+    const selectedMsg = byId.get(selectedId) || sorted[0]!
+
+    const senderAvatar = this.avatars.get(selectedMsg.authorId) || this.session?.getPeerAvatar(selectedMsg.authorId) || (selectedMsg.authorId === this.identity!.id ? this.avatar : '')
+    const authorName = this.displayName(selectedMsg.authorId)
+    const fullDate = new Date(selectedMsg.timestamp).toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })
+    const bodyFormatted = selectedMsg.deleted
+      ? `<em style="color:var(--text-muted);">${ICONS.trash} Message deleted</em>`
+      : (selectedMsg.body ? linkifyHashtags(linkify(escapeHtml(selectedMsg.body))) : '')
+
+    const deriveSubject = (msg: ChatMessage) => {
+      if (msg.deleted) return 'Message deleted'
+      const firstLine = (msg.body || '').split('\n').find((l) => l.trim().length > 0)
+      if (!firstLine) return msg.file ? `Attachment: ${msg.file.name}` : '(No subject)'
+      const cleaned = firstLine.replace(/^#+\s*/, '').trim()
+      return cleaned.slice(0, 50) + (cleaned.length > 50 ? '…' : '')
+    }
+
+    const selectedSubject = deriveSubject(selectedMsg)
+    const attachmentCard = selectedMsg.file && !selectedMsg.deleted
+      ? this.renderAttachmentCard(selectedMsg)
+      : ''
+
+    const listHtml = sorted.map((msg) => {
+      const isSel = msg.id === selectedId
+      const msgAuthor = this.displayName(msg.authorId)
+      const msgSubj = deriveSubject(msg)
+      const msgTime = formatRelativeTime(msg.timestamp)
+      const msgAvatar = this.avatars.get(msg.authorId) || this.session?.getPeerAvatar(msg.authorId) || (msg.authorId === this.identity!.id ? this.avatar : '')
+      const hasAttach = !!(msg.file && !msg.deleted)
+      return `
+        <div class="mailbox-item ${isSel ? 'selected' : ''}" data-mailbox-select="${msg.id}">
+          <div class="mailbox-item-avatar">${avatarHtml(msg.authorId, 'sm', msgAuthor, msgAvatar)}</div>
+          <div class="mailbox-item-content">
+            <div class="mailbox-item-header">
+              <span class="mailbox-item-author">${escapeHtml(msgAuthor)}</span>
+              <span class="mailbox-item-time">${msgTime}</span>
+            </div>
+            <div class="mailbox-item-subject">${hasAttach ? `<span class="attach-icon">${ICONS.attach}</span> ` : ''}${escapeHtml(msgSubj)}</div>
+            <div class="mailbox-item-preview">${escapeHtml((msg.body || '').slice(0, 75))}</div>
+          </div>
+        </div>
+      `
+    }).join('')
+
+    return `
+      <div class="mailbox-container">
+        <!-- Inbox Column -->
+        <div class="mailbox-sidebar">
+          <div class="mailbox-sidebar-header">
+            <span>Inbox (${messages.length})</span>
+          </div>
+          <div class="mailbox-list">
+            ${listHtml}
+          </div>
+        </div>
+
+        <!-- Reading Pane -->
+        <div class="mailbox-reading-pane">
+          <div class="mailbox-pane-header">
+            <div class="mailbox-pane-subject-row">
+              <h2 class="mailbox-pane-subject">${escapeHtml(selectedSubject)}</h2>
+              <div class="mailbox-pane-actions">
+                <button class="ghost icon-sm" data-reply="${selectedMsg.id}" title="Reply to letter">${ICONS.reply} Reply</button>
+                <button class="ghost icon-sm" data-copy-msg="${selectedMsg.id}" title="Copy">${ICONS.copy}</button>
+                ${selectedMsg.authorId === this.identity!.id ? `
+                  <button class="ghost icon-sm" data-edit-msg="${selectedMsg.id}" title="Edit">${ICONS.edit}</button>
+                  <button class="ghost icon-sm" data-delete-msg="${selectedMsg.id}" title="Delete">${ICONS.trash}</button>
+                ` : ''}
+              </div>
+            </div>
+
+            <div class="mailbox-envelope-meta">
+              <div class="mailbox-envelope-avatar">
+                ${avatarHtml(selectedMsg.authorId, 'md', authorName, senderAvatar)}
+              </div>
+              <div class="mailbox-envelope-details">
+                <div class="mailbox-envelope-from">
+                  <strong>${escapeHtml(authorName)}</strong>
+                  <span class="mailbox-envelope-handle">&lt;${selectedMsg.authorId.slice(0, 10)}…&gt;</span>
+                </div>
+                <div class="mailbox-envelope-subline">
+                  <span>To: <em>${escapeHtml(this.activeRoomName)}</em></span>
+                  <span>•</span>
+                  <span>${fullDate}</span>
+                  <span>•</span>
+                  <span class="mailbox-verified-badge">${ICONS.verified} P2P E2E Encrypted</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="mailbox-pane-body">
+            <div class="mailbox-pane-text">${bodyFormatted}</div>
+            ${attachmentCard ? `<div class="mailbox-pane-attachments"><h4>Attachments</h4>${attachmentCard}</div>` : ''}
+          </div>
+
+          <div class="mailbox-pane-footer">
+            <button class="mailbox-quick-reply-btn" data-reply="${selectedMsg.id}">
+              ${ICONS.reply} Quick reply to ${escapeHtml(authorName)}
+            </button>
+          </div>
+        </div>
+      </div>
+    `
+  }
+
+  private renderDocumentView(messages: ChatMessage[], byId: Map<string, ChatMessage>): string {
+    if (messages.length === 0) {
+      return `
+        <div class="doc-empty-state">
+          <div class="doc-empty-icon">${ICONS.document}</div>
+          <h3>Empty Sovereign Document</h3>
+          <p>Use the composer below to add your first note, changelog entry, or private journal thought.</p>
+        </div>
+      `
+    }
+
+    const sorted = [...messages].sort((a, b) => a.timestamp - b.timestamp)
+    const entriesHtml: string[] = []
+    let lastDateStr = ''
+
+    for (let i = 0; i < sorted.length; i++) {
+      const msg = sorted[i]!
+      const date = new Date(msg.timestamp)
+      const dateStr = date.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+      if (dateStr !== lastDateStr) {
+        entriesHtml.push(`
+          <div class="doc-date-divider">
+            <span class="doc-date-pill">${dateStr}</span>
+          </div>
+        `)
+        lastDateStr = dateStr
+      }
+
+      const authorName = this.displayName(msg.authorId)
+      const timeStr = formatMessageTime(msg.timestamp)
+      const isMine = msg.authorId === this.identity!.id
+      const bodyFormatted = msg.deleted
+        ? `<em style="color:var(--text-muted);">${ICONS.trash} Message deleted</em>`
+        : (msg.body ? linkifyHashtags(linkify(escapeHtml(msg.body))) : '')
+      const attachmentCard = msg.file && !msg.deleted
+        ? this.renderAttachmentCard(msg)
+        : ''
+
+      entriesHtml.push(`
+        <article class="doc-entry" id="doc-${msg.id}">
+          <header class="doc-entry-header">
+            <div class="doc-entry-meta">
+              <span class="doc-entry-index">#${i + 1}</span>
+              <span class="doc-entry-author">${escapeHtml(authorName)}</span>
+              <span class="doc-entry-time">${timeStr}</span>
+            </div>
+            <div class="doc-entry-actions">
+              ${msg.body ? `<button data-copy-msg="${msg.id}" title="Copy text">${ICONS.copy}</button>` : ''}
+              <button data-reply="${msg.id}" title="Quote note">${ICONS.reply}</button>
+              ${isMine ? `
+                <button data-edit-msg="${msg.id}" title="Edit note">${ICONS.edit}</button>
+                <button data-delete-msg="${msg.id}" title="Delete note">${ICONS.trash}</button>
+              ` : ''}
+            </div>
+          </header>
+          <div class="doc-entry-content">
+            <div class="doc-entry-body">${bodyFormatted}</div>
+            ${attachmentCard ? `<div class="doc-entry-attachment">${attachmentCard}</div>` : ''}
+          </div>
+        </article>
+      `)
+    }
+
+    return `
+      <div class="doc-canvas">
+        <div class="doc-header-card">
+          <div class="doc-header-title-row">
+            <h1>${escapeHtml(this.activeRoomName)}</h1>
+            <span class="doc-badge">${ICONS.document} Live Document</span>
+          </div>
+          <p class="doc-subtitle">A distraction-free sovereign journal powered by Autobase P2P log.</p>
+        </div>
+        <div class="doc-entries-list">
+          ${entriesHtml.join('')}
+        </div>
+      </div>
+    `
+  }
+
   private renderMessageRow(
     message: ChatMessage,
     prev: ChatMessage | undefined,
@@ -2096,86 +2410,7 @@ export class AppShell extends HTMLElement {
   ): string {
     const mine = message.authorId === this.identity!.id
     const isSameAuthor = prev !== undefined && prev.authorId === message.authorId && (Math.abs(message.timestamp - prev.timestamp) < 5 * 60 * 1000)
-
-    // `message.file` survives a delete — `applyOverlay` only blanks the body — so without the
-    // `deleted` guard a deleted attachment kept rendering its full card, play and download
-    // buttons included. Videos made it obvious (the poster frame just stayed put), but images,
-    // voice notes and plain files were all still fetchable from peers after being "deleted".
-    let fileHtml = ''
-    if (message.file && !message.deleted) {
-      // Video is decided first: it carries a thumbnail too (its poster frame), so testing for
-      // an image by "has a thumbnail" would swallow every video that has one.
-      //
-      // The extension guess only runs when there's no mimeType to trust: .webm is also a voice
-      // recording's real extension (see stopVoiceRecording), so treating it as video-by-extension
-      // unconditionally overrode a correctly-set 'audio/webm' and rendered every voice message as
-      // a video player.
-      const isVideo = message.file.mimeType
-        ? message.file.mimeType.startsWith('video/')
-        : /\.(mp4|m4v|mov|webm|mkv|avi)$/i.test(message.file.name)
-      const isImg = !isVideo && (message.file.thumbnail || message.file.mimeType?.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(message.file.name))
-      const isAudio = !isImg && !isVideo && (message.file.mimeType?.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac|flac|opus)$/i.test(message.file.name))
-      if (isAudio) {
-        // A voice message has no filename worth showing — it's a recording, not a file the
-        // sender chose. An actual audio file someone attached still shows its name.
-        const isVoice = /^voice-\d{4}-/.test(message.file.name)
-        fileHtml = isVoice ? `
-          <div class="voice-chip" data-audio-slot="${message.id}">
-            <button class="voice-play-btn" data-play-audio="${message.id}" data-drive-key="${message.file.driveKey}" data-path="${message.file.path}" title="Play voice message">${ICONS.play}</button>
-            <span class="voice-wave" aria-hidden="true">${'<i></i>'.repeat(14)}</span>
-            <span class="voice-label">Voice message</span>
-          </div>
-        ` : `
-          <div class="file-chip" style="display:flex;flex-direction:column;gap:0.4rem;padding:0.5rem;background:var(--bg-panel);border:1px solid var(--border-card);border-radius:4px;margin-top:0.3rem;min-width:220px;">
-            <div style="font-weight:600;font-size:0.8rem;">${escapeHtml(message.file.name)}</div>
-            <div data-audio-slot="${message.id}">
-              <button class="primary" style="padding:0.25rem 0.6rem;font-size:0.75rem;" data-play-audio="${message.id}" data-drive-key="${message.file.driveKey}" data-path="${message.file.path}">${ICONS.play} Play</button>
-            </div>
-          </div>
-        `
-      } else if (isImg) {
-        const thumbSrc = message.file.thumbnail || this.remoteImageCache.get(`${message.file.driveKey}:${message.file.path}`) || ''
-        fileHtml = `
-          <div class="msg-image-card">
-            <div class="msg-image-thumb-wrap">
-              <img src="${thumbSrc || 'data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'100\' height=\'100\' fill=\'%231f293d\'><rect width=\'100\' height=\'100\'/><text x=\'50\' y=\'55\' fill=\'%2364748b\' font-size=\'14\' text-anchor=\'middle\'>Loading…</text></svg>'}" alt="${escapeHtml(message.file.name)}" class="msg-image-thumb" />
-            </div>
-            <div class="msg-image-footer">
-              <span class="file-name" style="font-size:0.75rem;color:var(--text-dim);">${escapeHtml(message.file.name)}</span>
-              <button class="primary" style="padding:0.25rem 0.55rem;font-size:0.7rem;" data-download="${message.file.driveKey}" data-name="${message.file.name}" data-path="${message.file.path}">Download</button>
-            </div>
-          </div>
-        `
-      } else if (isVideo) {
-        // Streamed, not downloaded: playback starts on the first range the player asks for
-        // rather than after the whole file has arrived. Videos sent before posters existed have
-        // no thumbnail, so the card falls back to a plain plate behind the play button.
-        const poster = message.file.thumbnail
-        fileHtml = `
-          <div class="msg-video-card" data-play-video="${message.file.driveKey}" data-name="${escapeHtml(message.file.name)}" data-path="${message.file.path}">
-            <div class="msg-video-frame">
-              ${poster ? `<img src="${poster}" alt="${escapeHtml(message.file.name)}" class="msg-video-poster" />` : ''}
-              <span class="msg-video-play">${ICONS.play}</span>
-            </div>
-            <div class="msg-video-footer">
-              <span class="file-name">${escapeHtml(message.file.name)}</span>
-              <span class="msg-video-size">${formatBytes(message.file.size)}</span>
-              <button class="ghost icon-sm" style="padding:0.15rem 0.35rem;" data-download="${message.file.driveKey}" data-name="${escapeHtml(message.file.name)}" data-path="${message.file.path}" title="Save video">${ICONS.download}</button>
-            </div>
-          </div>
-        `
-      } else {
-        fileHtml = `
-          <div class="file-chip" style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem;background:var(--bg-panel);border:1px solid var(--border-card);border-radius:4px;margin-top:0.3rem;">
-            <div style="flex:1;min-width:0">
-              <div style="font-weight:600;font-size:0.8rem;">${escapeHtml(message.file.name)}</div>
-              <div style="color:var(--text-muted);font-size:0.7rem;">${formatBytes(message.file.size)} • P2P</div>
-            </div>
-            <button class="primary" style="padding:0.25rem 0.6rem;font-size:0.75rem;" data-download="${message.file.driveKey}" data-name="${message.file.name}" data-path="${message.file.path}">Download</button>
-          </div>
-        `
-      }
-    }
+    const fileHtml = this.renderAttachmentCard(message)
 
     const senderAvatar = this.avatars.get(message.authorId) || this.session?.getPeerAvatar(message.authorId) || (mine ? this.avatar : '')
     const avatar = !mine && !isSameAuthor ? avatarHtml(message.authorId, 'sm', this.displayName(message.authorId), senderAvatar) : '<div style="width:32px;flex-shrink:0;"></div>'

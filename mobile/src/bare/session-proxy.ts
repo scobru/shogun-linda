@@ -88,6 +88,11 @@ export class SessionProxy {
     return this.getRoom(roomId)
   }
 
+  async ensurePersonalVault(): Promise<RoomProxy> {
+    const { roomId } = await bareClient.call<{ roomId: string }>('session.ensurePersonalVault')
+    return this.getRoom(roomId)
+  }
+
   async joinRoomByKey(name: string, key: string): Promise<RoomProxy> {
     const { roomId } = await bareClient.call<{ roomId: string }>('session.joinRoomByKey', name, key)
     return this.getRoom(roomId)

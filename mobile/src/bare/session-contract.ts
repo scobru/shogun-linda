@@ -43,6 +43,7 @@ type NotForwarded =
   | 'setAppBackground'
   | 'getPairingSnapshot'
   | 'importPairingSnapshot'
+  | 'ensurePersonalVault'
 
 export type ForwardedSessionMethod = Exclude<MethodNames<Session>, NotForwarded>
 

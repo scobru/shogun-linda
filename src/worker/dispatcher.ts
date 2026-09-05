@@ -273,6 +273,20 @@ export class WorkerDispatcher {
       return { roomId: room.id, state: extractRoomState(room), inviteLink, bookmarks }
     },
 
+    'session.ensurePersonalVault': async () => {
+      const room = await this.requireSession().ensurePersonalVault()
+      this.wireRoom(room)
+      let inviteLink = ''
+      try {
+        if (room.isOwner(this.requireSession().identity.id)) {
+          inviteLink = this.requireSession().inviteLinkFor(room.id)
+        }
+      } catch {}
+      const bookmarks = this.requireSession().listBookmarks()
+      this.pushEvent('bookmarksChange', bookmarks)
+      return { roomId: room.id, state: extractRoomState(room), inviteLink, bookmarks }
+    },
+
     'session.joinRoomByKey': async (
       name: string,
       invite: string,

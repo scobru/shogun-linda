@@ -245,3 +245,27 @@ verifiche sulla DHT pubblica invece che su quella di test in-process.
 2. Il destinatario incolla il link e invia una richiesta di contatto (`sendContactRequest`).
 3. La richiesta appare nella sezione **Contacts** come "Richiesta in Arrivo".
 4. Accettando la richiesta (`respondToContact`), entrambi i client registrano il contatto come `accepted`, scambiano i permessi di scrittura nella stanza 1:1 e aprono la chat privata cifrata end-to-end.
+
+### H. Personal Vault Sovrano (Single-Writer Encrypted Space)
+1. Ogni identità dispone di una stanza speciale riservata denominata **Personal Vault** (`isVault: true`, `favorite: true`), creata o recuperata in modo idempotente all'avvio con `session.ensurePersonalVault()`.
+2. A differenza delle normali stanze di gruppo o 1:1, il Personal Vault è uno spazio **single-writer**: solo l'utente locale (e i suoi dispositivi associati) possiede la chiave di scrittura su Autobase. Non essendoci scrittori remoti, le operazioni di scrittura sono istantanee, prive di conflitti e completamente offline-first.
+3. Nel segnalibro locale (`RoomBookmark`), il campo `isVault: true` assicura che il vault appaia in cima alla lista stanze con badge dorato `🔐 VAULT`.
+4. Durante il pairing P2P (`getPairingSnapshot` / `importPairingSnapshot`), il flag `isVault` e `favorite` vengono preservati e replicati sui dispositivi secondari (desktop o smartphone), consentendo un archivio personale di note cifrate, password e file privati accessibile su tutto il proprio hardware.
+
+### I. Viste Adattive dei Messaggi (Chat, Mailbox, Note, File)
+1. Una stanza Autobase memorizza un registro immutabile e causale di messaggi (`body`, `file`, `reactions`, `timestamp`).
+2. Il livello di presentazione desktop (`app-shell.ts`) proietta questa singola sequenza di dati in 4 prospettive specializzate tramite un selettore a tab:
+   - **Chat**: Feed standard a bolle conversazionali.
+   - **Mailbox**: Layout asincrono a doppio pannello in stile client email (a sinistra la lista messaggi con anteprima, mittente e data; a destra il riquadro di lettura formale con badge di cifratura E2E, dettagli mittente/destinatari, allegati dedicati e barra di risposta rapida).
+   - **Note / Document**: Visualizzazione a documento continuo senza bolle di chat, con divisori per data e tipografia lineare. Ottimale per articoli lunghi, verbali di riunione e per consultare il Personal Vault.
+   - **File**: Esploratore dei file multimediali estratti dal log e sincronizzati via Hyperdrive.
+3. Questa architettura a proiezioni multiple non richiede alcuna migrazione dello schema di Autobase: le diverse viste sono trasformazioni puramente estetiche e funzionali dello stesso registro crittografato.
+
+### J. Roadmap LindaWeb: Bridge WebSocket Zero-Knowledge e Compagno Headless
+1. **Il Vincolo del Browser**: I browser web non possono eseguire socket UDP/TCP grezzi o la tabella DHT di Hyperswarm a causa della sandbox di sicurezza; WebRTC richiede server STUN/TURN centralizzati esterni.
+2. **La Soluzione Sovereign**: Un nodo compagno leggero headless (`linda-daemon` o il client desktop stesso) funge da bridge locale/remoto esponendo un endpoint WebSocket autenticato (`linda-bridge`).
+3. **Zero-Knowledge sul Filo**:
+   - La frase mnemonica di 12 parole e le chiavi Ed25519 risiedono unicamente nel browser (IndexedDB cifrato con WebCrypto).
+   - Il client web compila le primitive crittografiche in WASM (`libsodium-wrappers`), cifrando e decifrando tutti i messaggi localmente sul dispositivo dell'utente.
+   - Il bridge WebSocket inoltra unicamente frame cifrati e pacchetti di sincronizzazione Hypercore, senza alcuna possibilità di leggere il contenuto delle conversazioni o forgiare firme utente.
+

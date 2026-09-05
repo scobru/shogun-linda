@@ -39,6 +39,28 @@ By eliminating real-time call plumbing entirely, Linda guarantees that all inter
 
 ## Unique Features
 
+### 🔐 Personal Vault (Sovereign Private Storage)
+
+Every Linda identity automatically receives an encrypted **Personal Vault** pinned to the top of the sidebar with a distinctive gold `🔐 VAULT` badge.
+
+- **Single-writer sovereign space**: A dedicated Autobase room where the local user is the sole writer (`isVault: true`, `favorite: true`). Because there are no remote writers to coordinate with, append operations are instantaneous and zero-conflict.
+- **Private notes, credentials & files**: Acts as your personal encrypted journal, password safe, bookmark depository, and private file storage.
+- **Automated setup**: Ensured idempotently on startup (`session.ensurePersonalVault()`); if already existing, it is immediately opened and pinned.
+- **Multi-device sync**: When pairing a second desktop or mobile device via P2P QR pairing, `getPairingSnapshot()` / `importPairingSnapshot()` replicates the Personal Vault bookmark, metadata, and encryption keys so your private notes are always available across all your trusted hardware.
+
+### 🎛️ Adaptive Message Views (Chat, Mailbox, Notes, Files)
+
+A room is not limited to a single presentation. Through the top navigation bar, users can seamlessly switch between **4 specialized perspectives** over the same underlying causal Autobase message stream:
+
+- **💬 Chat**: Standard conversational bubble timeline for fast, real-time messaging, emoji reactions, and voice notes.
+- **✉️ Mailbox**: Asynchronous email client layout featuring a dual-pane interface:
+  - **Left Pane**: Message list sorted chronologically with sender badge, subject line / preview snippet, and time.
+  - **Right Pane**: Elegant reading view with sender metadata, recipient info, end-to-end encryption confirmation, full markdown-formatted message body, attachment cards, and a quick-reply bar. Ideal for long-form correspondence, formal announcements, or async threads.
+- **📄 Notes / Document**: Distraction-free, continuous reading journal. Drops speech bubbles in favor of a clean, linear document layout grouped by date dividers. Perfect for project logs, meeting notes, articles, and reading through Personal Vault memos.
+- **📁 Files**: Replicated Hyperdrive shared file browser with live search, file metadata, direct downloads, and range-seek media streaming.
+
+Because all 4 views project directly from the immutable message stream (`body`, `file`, `reactions`), switching views requires **zero backend schema migration** and keeps all peers in 100% causal consistency.
+
 ### 📁 Room Files (a second view over the chat)
 
 There is no separate upload channel and no per-room drive. A file becomes a room file by being
@@ -324,6 +346,40 @@ What that leaves:
 Honest framing: **single-hop BLE between two phones is a plausible piece of work.** Cross-platform
 multi-hop mesh is a research-grade project, not a feature — worth splitting the two so the first
 can ship without waiting on the second.
+
+## 🌐 LindaWeb: Technical Roadmap & Architecture
+
+Can Linda run in a standard web browser? This is one of the most frequent architectural inquiries.
+
+### The Browser Limitation: The UDP/NAT Sandbox
+The Holepunch stack (*Hyperswarm*, *Corestore*, *Autobase*) relies on direct UDP packet manipulation, raw TCP sockets, and UDP holepunching (via the Distributed Hash Table) to punch through NAT routers without central relay servers. Web browsers, by design, execute JavaScript inside a strict security sandbox that prohibits raw UDP/TCP access; browsers only support HTTP/HTTPS, WebSockets, and WebRTC (which requires external STUN/TURN signaling).
+
+### The Sovereign Solution: Zero-Knowledge WebSocket Bridge (`linda-bridge`)
+To enable **LindaWeb** without violating Linda's zero-knowledge and zero-server principles, Linda implements a companion bridge architecture:
+
+```
+[ Web Browser (LindaWeb) ]
+       │
+       │ Authenticated WebSocket (WSS) / JSON-RPC + Binary Frames
+       ▼
+[ linda-bridge (Headless Node / Self-Hosted VPS or Home Server) ]
+       │
+       │ Native UDP Holepunching / Hyperswarm DHT / Protomux
+       ▼
+[ Hyperswarm P2P Swarm & Autonomous Peers (Desktop & Mobile) ]
+```
+
+### Architectural Guarantees & Milestones
+1. **Zero-Knowledge Key Custody**:
+   - The user's BIP39 mnemonic and Ed25519 identity keypairs are **never** shared with the bridge node.
+   - All cryptographic operations (message encryption/decryption, signatures) execute directly inside the browser using WebCrypto and WASM (`libsodium-wrappers`).
+   - The bridge node acts purely as an encrypted packet router and Hyperswarm proxy; it cannot read message contents, decrypt files, or forge user signatures.
+2. **Phase 1: Headless Companion Daemon (`linda-daemon`)**:
+   - A lightweight, headless CLI binary that runs on a home server (Raspberry Pi, NAS) or the user's local PC, exposing the shared `src/worker/` RPC dispatcher over local WebSocket.
+3. **Phase 2: Progressive Web App (PWA) Client**:
+   - A responsive web client replicating `<app-shell>` that connects to the companion daemon with QR-code authentication, providing web access to rooms, mailbox, notes, and file streaming.
+4. **Phase 3: WebRTC Data Channel Direct Peering**:
+   - Direct browser-to-desktop WebRTC data channels for peers on the same local network or reachable via standard ICE, minimizing bridge relay overhead.
 
 ## Distribution
 

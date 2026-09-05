@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import {
   View, Text, FlatList, Pressable, StyleSheet,
   TextInput, Alert, ActionSheetIOS, Platform, Modal,
-  SafeAreaView, Keyboard,
+  SafeAreaView, Keyboard, ScrollView,
 } from 'react-native'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import { useFocusEffect } from '@react-navigation/native'
@@ -109,8 +109,10 @@ export default function RoomChatScreen({ route, navigation }: Props) {
   const { privateMode } = usePrivateMode()
   const room = roomId ? session?.getRoom(roomId) : undefined
   const identityId = identity?.id || ''
-  const clearedAt = bookmarks.find((b) => b.id === roomId)?.clearedAt ?? 0
-  const roomTopic = (bookmarks.find((b) => b.id === roomId)?.description ?? '').trim()
+  const bookmark = bookmarks.find((b) => b.id === roomId)
+  const isVault = bookmark?.isVault ?? false
+  const clearedAt = bookmark?.clearedAt ?? 0
+  const roomTopic = (bookmark?.description ?? '').trim()
 
   // Screen navigates in before the join finishes (see RoomsScreen.handleJoinRoom) — run it here
   // instead, in the background. `room` stays undefined until this resolves, so useRoom below
@@ -174,7 +176,10 @@ export default function RoomChatScreen({ route, navigation }: Props) {
   // would accept the message and every peer would then drop it while linearizing the log.
   const [canPost, setCanPost] = useState(false)
   const [broadcast, setBroadcast] = useState(false)
-  const [activeTab, setActiveTab] = useState<'chat' | 'files'>('chat')
+  const [activeTab, setActiveTab] = useState<'chat' | 'mailbox' | 'document' | 'files'>('chat')
+  const [selectedMailboxMessage, setSelectedMailboxMessage] = useState<ChatMessage | null>(null)
+  const [mailboxReplyText, setMailboxReplyText] = useState('')
+  const [mailboxSending, setMailboxSending] = useState(false)
   const [roomFiles, setRoomFiles] = useState<RoomFile[]>([])
   const [filesLoading, setFilesLoading] = useState(false)
   const [fileSearchQuery, setFileSearchQuery] = useState('')
@@ -395,10 +400,17 @@ export default function RoomChatScreen({ route, navigation }: Props) {
             <Text style={{ color: colors.textPrimary, fontSize: 16, fontWeight: '700' }} numberOfLines={1}>
               {roomName}
             </Text>
-            <Ionicons name="checkmark-circle" size={14} color="#38bdf8" />
+            {isVault ? (
+              <View style={styles.vaultBadge}>
+                <Ionicons name="lock-closed" size={9} color="#f59e0b" />
+                <Text style={styles.vaultBadgeText}>VAULT</Text>
+              </View>
+            ) : (
+              <Ionicons name="checkmark-circle" size={14} color="#38bdf8" />
+            )}
           </View>
           <Text style={{ color: colors.textTertiary, fontSize: 11 }}>
-            {`${memberCount} member(s)`}
+            {isVault ? 'Single-Writer Sovereign Vault' : `${memberCount} member(s)`}
           </Text>
         </View>
       ),
@@ -407,15 +419,17 @@ export default function RoomChatScreen({ route, navigation }: Props) {
           <Pressable onPress={() => setShowSearch(!showSearch)} style={styles.headerBtn}>
             <Ionicons name="search-outline" size={20} color={colors.textPrimary} />
           </Pressable>
-          <Pressable
-            onPress={() => roomId && navigation.navigate('Members', { roomId, roomName })}
-            style={styles.headerBtn}
-          >
-            <Ionicons name="people-outline" size={20} color={colors.textPrimary} />
-          </Pressable>
+          {!isVault && (
+            <Pressable
+              onPress={() => roomId && navigation.navigate('Members', { roomId, roomName })}
+              style={styles.headerBtn}
+            >
+              <Ionicons name="people-outline" size={20} color={colors.textPrimary} />
+            </Pressable>
+          )}
           {/* Owner-only: the owner is the only member who runs `redeemInvite`, so a link shared by
               anyone else gets the joiner into the room read-only and stuck there. */}
-          {isOwner && (
+          {isOwner && !isVault && (
             <Pressable
               onPress={() => roomId && navigation.navigate('Invite', { roomId, roomName })}
               style={styles.headerBtn}
@@ -426,7 +440,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
         </View>
       ),
     })
-  }, [navigation, roomId, roomName, showSearch, memberCount, isOwner, colors, selectionMode, selectedIds, exitSelectionMode, handleBatchDelete])
+  }, [navigation, roomId, roomName, showSearch, memberCount, isOwner, isVault, colors, styles, selectionMode, selectedIds, exitSelectionMode, handleBatchDelete])
 
   const getAuthorName = useCallback((authorId: string) => {
     if (authorId === identityId) return 'You'
@@ -456,6 +470,78 @@ export default function RoomChatScreen({ route, navigation }: Props) {
     if (activeHashtag) list = list.filter((m) => !m.deleted && hasHashtag(m.body, activeHashtag))
     return list
   }, [messages, searchQuery, activeHashtag])
+
+  const mailboxMessages = useMemo(() => {
+    return filteredMessages
+      .filter((m) => !m.deleted)
+      .slice()
+      .sort((a, b) => b.timestamp - a.timestamp)
+  }, [filteredMessages])
+
+  const docDayGroups = useMemo(() => {
+    const nonDeleted = filteredMessages.filter((m) => !m.deleted)
+    const groups: { day: string; items: ChatMessage[] }[] = []
+    let currentDay = ''
+    let currentItems: ChatMessage[] = []
+
+    for (const m of nonDeleted) {
+      const day = new Date(m.timestamp).toLocaleDateString(undefined, {
+        weekday: 'short',
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      })
+      if (day !== currentDay) {
+        if (currentItems.length > 0) {
+          groups.push({ day: currentDay, items: currentItems })
+        }
+        currentDay = day
+        currentItems = [m]
+      } else {
+        currentItems.push(m)
+      }
+    }
+    if (currentItems.length > 0) {
+      groups.push({ day: currentDay, items: currentItems })
+    }
+    return groups
+  }, [filteredMessages])
+
+  const handleSendMailboxReply = useCallback(async () => {
+    if (!selectedMailboxMessage || !mailboxReplyText.trim()) return
+    setMailboxSending(true)
+    try {
+      await sendMessage(mailboxReplyText.trim(), selectedMailboxMessage.id)
+      setMailboxReplyText('')
+      Alert.alert('Sent', 'Reply added to thread.')
+    } catch (err) {
+      Alert.alert('Failed to send', (err as Error).message)
+    } finally {
+      setMailboxSending(false)
+    }
+  }, [selectedMailboxMessage, mailboxReplyText, sendMessage])
+
+  const renderAttachment = useCallback((file: { name: string; size: number; mimeType?: string; path: string; driveKey: string; thumbnail?: string }) => {
+    const isDownloading = downloadingFilePath === file.path
+    return (
+      <View style={styles.attachmentBox}>
+        <View style={styles.attachmentIconBox}>
+          <Ionicons name={getFileIcon(file.name, file.mimeType || '')} size={22} color={colors.accent} />
+        </View>
+        <View style={styles.attachmentDetails}>
+          <Text style={styles.attachmentName} numberOfLines={1}>{file.name}</Text>
+          <Text style={styles.attachmentMeta}>{formatBytes(file.size)}</Text>
+        </View>
+        <Pressable
+          style={styles.attachmentDownloadBtn}
+          disabled={isDownloading}
+          onPress={() => handleDownloadFile(file as unknown as RoomFile)}
+        >
+          <Ionicons name={isDownloading ? "hourglass-outline" : "download-outline"} size={18} color={colors.accent} />
+        </Pressable>
+      </View>
+    )
+  }, [downloadingFilePath, colors, styles, handleDownloadFile])
 
   const handleSend = useCallback(async (text: string) => {
     await sendMessage(text, replyTo?.id)
@@ -633,26 +719,127 @@ export default function RoomChatScreen({ route, navigation }: Props) {
         </View>
       )}
 
-      {(
-        <View style={styles.tabContainer}>
-          <Pressable
-            style={[styles.tabButton, activeTab === 'chat' && styles.tabButtonActive]}
-            onPress={() => setActiveTab('chat')}
-          >
-            <Ionicons name="chatbubble-outline" size={15} color={activeTab === 'chat' ? colors.accent : colors.textSecondary} />
-            <Text style={[styles.tabText, activeTab === 'chat' && styles.tabTextActive]}>Chat</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.tabButton, activeTab === 'files' && styles.tabButtonActive]}
-            onPress={() => setActiveTab('files')}
-          >
-            <Ionicons name="folder-outline" size={15} color={activeTab === 'files' ? colors.accent : colors.textSecondary} />
-            <Text style={[styles.tabText, activeTab === 'files' && styles.tabTextActive]}>Files ({roomFiles.length})</Text>
-          </Pressable>
-        </View>
-      )}
+      <View style={styles.tabContainer}>
+        <Pressable
+          style={[styles.tabButton, activeTab === 'chat' && styles.tabButtonActive]}
+          onPress={() => setActiveTab('chat')}
+        >
+          <Ionicons name="chatbubble-outline" size={13} color={activeTab === 'chat' ? '#061e27' : colors.textSecondary} />
+          <Text style={[styles.tabText, activeTab === 'chat' && styles.tabTextActive]}>Chat</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.tabButton, activeTab === 'mailbox' && styles.tabButtonActive]}
+          onPress={() => setActiveTab('mailbox')}
+        >
+          <Ionicons name="mail-outline" size={13} color={activeTab === 'mailbox' ? '#061e27' : colors.textSecondary} />
+          <Text style={[styles.tabText, activeTab === 'mailbox' && styles.tabTextActive]}>Mailbox</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.tabButton, activeTab === 'document' && styles.tabButtonActive]}
+          onPress={() => setActiveTab('document')}
+        >
+          <Ionicons name="document-text-outline" size={13} color={activeTab === 'document' ? '#061e27' : colors.textSecondary} />
+          <Text style={[styles.tabText, activeTab === 'document' && styles.tabTextActive]}>Notes</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.tabButton, activeTab === 'files' && styles.tabButtonActive]}
+          onPress={() => setActiveTab('files')}
+        >
+          <Ionicons name="folder-outline" size={13} color={activeTab === 'files' ? '#061e27' : colors.textSecondary} />
+          <Text style={[styles.tabText, activeTab === 'files' && styles.tabTextActive]}>Files</Text>
+        </Pressable>
+      </View>
 
-      {activeTab === 'files' ? (
+      {activeTab === 'mailbox' ? (
+        <View style={{ flex: 1 }}>
+          <FlatList
+            data={mailboxMessages}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.mailboxList}
+            renderItem={({ item }) => {
+              const lines = item.body.trim().split('\n')
+              const subject = lines[0] || (item.file ? item.file.name : 'No subject')
+              const snippet = lines.length > 1 ? lines.slice(1).join(' ').trim() : (item.file ? `${item.file.name} (${formatBytes(item.file.size)})` : '')
+              const author = getAuthorName(item.authorId)
+              return (
+                <Pressable
+                  style={({ pressed }) => [styles.mailboxCard, pressed && styles.mailboxCardPressed]}
+                  onPress={() => setSelectedMailboxMessage(item)}
+                >
+                  <View style={styles.mailboxHeaderRow}>
+                    <Avatar
+                      id={item.authorId}
+                      label={author}
+                      imageUrl={avatars.get(item.authorId)}
+                      size="sm"
+                    />
+                    <Text style={styles.mailboxAuthor} numberOfLines={1}>{author}</Text>
+                    <View style={{ flex: 1 }} />
+                    {item.file && <Ionicons name="attach-outline" size={14} color={colors.accent} style={{ marginRight: 4 }} />}
+                    <Text style={styles.mailboxTime}>
+                      {new Date(item.timestamp).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                    </Text>
+                  </View>
+                  <Text style={styles.mailboxSubject} numberOfLines={1}>{subject}</Text>
+                  {snippet ? (
+                    <Text style={styles.mailboxSnippet} numberOfLines={2}>{snippet}</Text>
+                  ) : null}
+                </Pressable>
+              )
+            }}
+            ListEmptyComponent={
+              <View style={styles.emptyCenter}>
+                <Ionicons name="mail-unread-outline" size={44} color={colors.textSecondary} style={styles.emptyIcon} />
+                <Text style={styles.emptyText}>No messages in mailbox</Text>
+              </View>
+            }
+          />
+        </View>
+      ) : activeTab === 'document' ? (
+        <View style={{ flex: 1 }}>
+          <ScrollView contentContainerStyle={styles.docCanvas}>
+            {docDayGroups.map((group) => (
+              <View key={group.day} style={styles.docDaySection}>
+                <View style={styles.docDateDivider}>
+                  <Text style={styles.docDateText}>{group.day}</Text>
+                </View>
+                {group.items.map((item) => (
+                  <View key={item.id} style={styles.docEntry}>
+                    <View style={styles.docMetaRow}>
+                      <Text style={styles.docAuthor}>{getAuthorName(item.authorId)}</Text>
+                      <Text style={styles.docTime}>
+                        {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </Text>
+                    </View>
+                    <Text style={styles.docBody} selectable>
+                      {item.body}
+                    </Text>
+                    {item.file && (
+                      <View style={{ marginTop: spacing.xs }}>
+                        {renderAttachment(item.file)}
+                      </View>
+                    )}
+                  </View>
+                ))}
+              </View>
+            ))}
+            {docDayGroups.length === 0 && (
+              <View style={styles.emptyCenter}>
+                <Ionicons name="document-text-outline" size={44} color={colors.textSecondary} style={styles.emptyIcon} />
+                <Text style={styles.emptyText}>No notes written yet</Text>
+              </View>
+            )}
+          </ScrollView>
+          {writable && hasKey && canPost ? (
+            <MessageComposer
+              onSend={handleSend}
+              onAttach={handleAttach}
+              onChangeText={notifyTyping}
+              placeholder={isVault ? "Write a private note to yourself..." : "Add to notes..."}
+            />
+          ) : null}
+        </View>
+      ) : activeTab === 'files' ? (
         <View style={{ flex: 1 }}>
           <View style={styles.filesToolbar}>
             <TextInput
@@ -841,6 +1028,7 @@ export default function RoomChatScreen({ route, navigation }: Props) {
               onChangeText={notifyTyping}
               replyTo={replyTo}
               editingMessage={editingMessage}
+              placeholder={isVault ? "Write a private note to yourself..." : "Message"}
               onCancelReply={() => setReplyTo(null)}
               onCancelEdit={() => setEditingMessage(null)}
               onSubmitEdit={handleEdit}
@@ -931,6 +1119,78 @@ export default function RoomChatScreen({ route, navigation }: Props) {
       {playingVideo && (
         <VideoPlayerModal uri={playingVideo.uri} name={playingVideo.name} onClose={() => setPlayingVideo(null)} />
       )}
+
+      {/* Mailbox Reading Pane Modal */}
+      <Modal visible={!!selectedMailboxMessage} animationType="slide" onRequestClose={() => setSelectedMailboxMessage(null)}>
+        <SafeAreaView style={styles.safe}>
+          <View style={styles.readerHeader}>
+            <Pressable onPress={() => setSelectedMailboxMessage(null)} style={styles.readerBackBtn}>
+              <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
+            </Pressable>
+            <Text style={styles.readerHeaderTitle}>Mailbox Message</Text>
+            <View style={{ width: 40 }} />
+          </View>
+          {selectedMailboxMessage && (
+            <View style={{ flex: 1 }}>
+              <ScrollView contentContainerStyle={styles.readerContent}>
+                <View style={styles.readerMetaCard}>
+                  <Text style={styles.readerSubject}>
+                    {selectedMailboxMessage.body.trim().split('\n')[0] || selectedMailboxMessage.file?.name || 'Message'}
+                  </Text>
+                  <View style={styles.readerRow}>
+                    <Avatar
+                      id={selectedMailboxMessage.authorId}
+                      label={getAuthorName(selectedMailboxMessage.authorId)}
+                      imageUrl={avatars.get(selectedMailboxMessage.authorId)}
+                      size="sm"
+                    />
+                    <View style={{ flex: 1, marginLeft: spacing.sm }}>
+                      <Text style={styles.readerAuthor}>{getAuthorName(selectedMailboxMessage.authorId)}</Text>
+                      <Text style={styles.readerTo}>To: {roomName} • Sovereign P2P</Text>
+                    </View>
+                    <Text style={styles.readerDate}>
+                      {new Date(selectedMailboxMessage.timestamp).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </Text>
+                  </View>
+                  <View style={styles.readerSecurityBadge}>
+                    <Ionicons name="shield-checkmark" size={13} color={colors.cyan} />
+                    <Text style={styles.readerSecurityText}>P2P End-to-End Encrypted</Text>
+                  </View>
+                </View>
+
+                <View style={styles.readerBodyContainer}>
+                  <Text style={styles.readerBody} selectable>
+                    {selectedMailboxMessage.body}
+                  </Text>
+                  {selectedMailboxMessage.file && (
+                    <View style={{ marginTop: spacing.md }}>
+                      {renderAttachment(selectedMailboxMessage.file)}
+                    </View>
+                  )}
+                </View>
+              </ScrollView>
+
+              {/* Quick Reply Bar */}
+              <View style={styles.mailboxReplyBar}>
+                <TextInput
+                  style={styles.mailboxReplyInput}
+                  placeholder="Reply in this thread..."
+                  placeholderTextColor={colors.textTertiary}
+                  value={mailboxReplyText}
+                  onChangeText={setMailboxReplyText}
+                />
+                <Pressable
+                  style={[styles.mailboxReplySendBtn, (!mailboxReplyText.trim() || mailboxSending) && { opacity: 0.5 }]}
+                  disabled={!mailboxReplyText.trim() || mailboxSending}
+                  onPress={handleSendMailboxReply}
+                >
+                  <Ionicons name="send" size={16} color="#061e27" />
+                </Pressable>
+              </View>
+            </View>
+          )}
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   )
 }
@@ -1147,6 +1407,260 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     gap: spacing.xs,
   },
   fileActionBtn: {
+    padding: spacing.xs,
+  },
+  vaultBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(234, 179, 8, 0.15)',
+    borderColor: 'rgba(234, 179, 8, 0.4)',
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: radii.full,
+  },
+  vaultBadgeText: {
+    color: '#eab308',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  mailboxList: {
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  mailboxCard: {
+    backgroundColor: colors.bgSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    padding: spacing.md,
+    gap: spacing.xs,
+  },
+  mailboxCardPressed: {
+    backgroundColor: colors.bgTertiary,
+  },
+  mailboxHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  mailboxAuthor: {
+    color: colors.textPrimary,
+    fontSize: typography.sm,
+    fontWeight: '600',
+  },
+  mailboxTime: {
+    color: colors.textTertiary,
+    fontSize: typography.xs,
+  },
+  mailboxSubject: {
+    color: colors.accent,
+    fontSize: typography.sm,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  mailboxSnippet: {
+    color: colors.textSecondary,
+    fontSize: typography.xs,
+    lineHeight: 18,
+  },
+  docCanvas: {
+    padding: spacing.lg,
+    paddingBottom: spacing.xxl,
+  },
+  docDaySection: {
+    marginBottom: spacing.lg,
+  },
+  docDateDivider: {
+    alignSelf: 'center',
+    backgroundColor: colors.bgTertiary,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 4,
+    borderRadius: radii.full,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: spacing.md,
+  },
+  docDateText: {
+    color: colors.textTertiary,
+    fontSize: typography.xs,
+    fontWeight: '600',
+  },
+  docEntry: {
+    backgroundColor: colors.bgSecondary,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.accent,
+    borderRadius: radii.sm,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+    ...shadows.sm,
+  },
+  docMetaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.xs,
+  },
+  docAuthor: {
+    color: colors.accent,
+    fontSize: typography.xs,
+    fontWeight: '600',
+  },
+  docTime: {
+    color: colors.textTertiary,
+    fontSize: 10,
+  },
+  docBody: {
+    color: colors.textPrimary,
+    fontSize: typography.sm,
+    lineHeight: 20,
+  },
+  readerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    backgroundColor: colors.bgSecondary,
+  },
+  readerBackBtn: {
+    padding: spacing.xs,
+  },
+  readerHeaderTitle: {
+    color: colors.textPrimary,
+    fontSize: typography.md,
+    fontWeight: '600',
+  },
+  readerContent: {
+    padding: spacing.md,
+    paddingBottom: spacing.xxl,
+  },
+  readerMetaCard: {
+    backgroundColor: colors.bgSecondary,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    gap: spacing.sm,
+  },
+  readerSubject: {
+    color: colors.textPrimary,
+    fontSize: typography.lg,
+    fontWeight: '700',
+  },
+  readerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  readerAuthor: {
+    color: colors.textPrimary,
+    fontSize: typography.sm,
+    fontWeight: '600',
+  },
+  readerTo: {
+    color: colors.textTertiary,
+    fontSize: typography.xs,
+    marginTop: 1,
+  },
+  readerDate: {
+    color: colors.textTertiary,
+    fontSize: typography.xs,
+  },
+  readerSecurityBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(6, 182, 212, 0.1)',
+    borderColor: 'rgba(6, 182, 212, 0.3)',
+    borderWidth: 1,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 2,
+    borderRadius: radii.sm,
+  },
+  readerSecurityText: {
+    color: colors.cyan,
+    fontSize: 10,
+    fontWeight: '500',
+  },
+  readerBodyContainer: {
+    backgroundColor: colors.bgSecondary,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.lg,
+    minHeight: 180,
+  },
+  readerBody: {
+    color: colors.textPrimary,
+    fontSize: typography.md,
+    lineHeight: 24,
+  },
+  mailboxReplyBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.bgSecondary,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    gap: spacing.sm,
+  },
+  mailboxReplyInput: {
+    flex: 1,
+    backgroundColor: colors.inputBg,
+    borderRadius: radii.full,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    color: colors.textPrimary,
+    fontSize: typography.sm,
+  },
+  mailboxReplySendBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  attachmentBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.bgTertiary,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    padding: spacing.sm,
+    gap: spacing.sm,
+  },
+  attachmentIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: radii.sm,
+    backgroundColor: colors.bgSecondary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  attachmentDetails: {
+    flex: 1,
+    minWidth: 0,
+  },
+  attachmentName: {
+    color: colors.textPrimary,
+    fontSize: typography.sm,
+    fontWeight: '500',
+  },
+  attachmentMeta: {
+    color: colors.textTertiary,
+    fontSize: typography.xs,
+    marginTop: 2,
+  },
+  attachmentDownloadBtn: {
     padding: spacing.xs,
   },
 })

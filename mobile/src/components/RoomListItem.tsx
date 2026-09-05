@@ -13,6 +13,8 @@ interface Props {
   timestamp?: number
   unread?: boolean
   avatar?: string
+  isVault?: boolean
+  favorite?: boolean
   onPress: () => void
   onLongPress?: () => void
 }
@@ -26,7 +28,7 @@ function formatRelativeTime(ts: number): string {
   return `${Math.floor(diff / 86_400_000)}d`
 }
 
-export default function RoomListItem({ id, name, lastMessage, timestamp, unread, avatar, onPress, onLongPress }: Props) {
+export default function RoomListItem({ id, name, lastMessage, timestamp, unread, avatar, isVault, favorite, onPress, onLongPress }: Props) {
   const { colors } = useTheme()
   const styles = React.useMemo(() => createStyles(colors), [colors])
   const { privateMode } = usePrivateMode()
@@ -46,7 +48,17 @@ export default function RoomListItem({ id, name, lastMessage, timestamp, unread,
             <Text style={[styles.name, unread && styles.nameUnread]} numberOfLines={1}>
               {name}
             </Text>
-            <Ionicons name="checkmark-circle" size={14} color="#38bdf8" style={styles.verifiedIcon} />
+            {favorite && (
+              <Ionicons name="star" size={12} color="#eab308" style={{ marginLeft: 2 }} />
+            )}
+            {isVault ? (
+              <View style={styles.vaultBadge}>
+                <Ionicons name="lock-closed" size={10} color="#f59e0b" />
+                <Text style={styles.vaultBadgeText}>VAULT</Text>
+              </View>
+            ) : (
+              <Ionicons name="checkmark-circle" size={14} color="#38bdf8" style={styles.verifiedIcon} />
+            )}
           </View>
           {timestamp && timestamp > 0 && (
             <Text style={[styles.time, unread && styles.timeUnread]}>
@@ -113,6 +125,23 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   verifiedIcon: {
     marginTop: 1,
+  },
+  vaultBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.35)',
+    borderRadius: radii.sm,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  vaultBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#f59e0b',
+    letterSpacing: 0.5,
   },
   time: {
     color: colors.textTertiary,

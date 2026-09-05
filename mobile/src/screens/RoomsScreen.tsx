@@ -28,7 +28,7 @@ interface RoomRowActions {
  * in `renderItem` — which re-rendered every visible room on every one of them.
  */
 const RoomRow = React.memo(function RoomRow({
-  id, name, avatar, lastMessage, timestamp, unread, favorite, actions,
+  id, name, avatar, lastMessage, timestamp, unread, favorite, isVault, actions,
 }: {
   id: string
   name: string
@@ -37,6 +37,7 @@ const RoomRow = React.memo(function RoomRow({
   timestamp?: number
   unread: boolean
   favorite: boolean
+  isVault?: boolean
   actions: RoomRowActions
 }) {
   return (
@@ -47,6 +48,8 @@ const RoomRow = React.memo(function RoomRow({
       lastMessage={lastMessage}
       timestamp={timestamp}
       unread={unread}
+      favorite={favorite}
+      isVault={isVault}
       onPress={() => actions.onOpen(id, name)}
       onLongPress={() => actions.onOptions(id, name, favorite)}
     />
@@ -211,6 +214,7 @@ export default function RoomsScreen({ navigation }: Props) {
         timestamp={item.lastMessageTime ?? undefined}
         unread={!!item.lastMessageTime && item.lastMessageTime > (item.lastReadAt ?? 0)}
         favorite={!!item.favorite}
+        isVault={!!item.isVault}
         actions={rowActions}
       />
     )
@@ -231,7 +235,16 @@ export default function RoomsScreen({ navigation }: Props) {
     if (activeFilter === 'favorites') {
       list = list.filter((b) => b.favorite)
     }
-    return list
+    return list.slice().sort((a, b) => {
+      // Vault is always pinned first
+      if (a.isVault && !b.isVault) return -1
+      if (!a.isVault && b.isVault) return 1
+      // Then favorites
+      if (a.favorite && !b.favorite) return -1
+      if (!a.favorite && b.favorite) return 1
+      // Then newest message
+      return (b.lastMessageTime || 0) - (a.lastMessageTime || 0)
+    })
   }, [bookmarks, searchQuery, activeFilter])
 
   return (

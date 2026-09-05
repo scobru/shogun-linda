@@ -53,6 +53,7 @@ interface Props {
   onAttach?: (name: string, mimeType: string, base64: string, thumbnail?: string) => void
   replyTo?: { id: string; body: string; authorName: string } | null
   editingMessage?: { id: string; body: string } | null
+  placeholder?: string
   onCancelReply?: () => void
   onCancelEdit?: () => void
   onSubmitEdit?: (id: string, body: string) => void
@@ -60,7 +61,7 @@ interface Props {
 }
 
 export default function MessageComposer({
-  onSend, onAttach, replyTo, editingMessage, onCancelReply, onCancelEdit, onSubmitEdit, onChangeText,
+  onSend, onAttach, replyTo, editingMessage, placeholder, onCancelReply, onCancelEdit, onSubmitEdit, onChangeText,
 }: Props) {
   const { colors } = useTheme()
   const styles = useMemo(() => createStyles(colors), [colors])
@@ -259,7 +260,7 @@ export default function MessageComposer({
             setHasText((was) => (was === filled ? was : filled))
             onChangeText?.(t)
           }}
-          placeholder="Message"
+          placeholder={placeholder || "Message"}
           placeholderTextColor={colors.textTertiary}
           multiline
           maxLength={4000}

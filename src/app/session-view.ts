@@ -102,7 +102,6 @@ type SessionMembers = Pick<Session,
   | 'demoteAdmin'
   | 'getPairingSnapshot'
   | 'importPairingSnapshot'
-  | 'ensurePersonalVault'
 >
 
 export interface SessionView extends SessionMembers {

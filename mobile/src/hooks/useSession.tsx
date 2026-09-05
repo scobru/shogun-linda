@@ -226,6 +226,7 @@ export function SessionProvider({ children }: Props) {
     // unlock screen — and the whole app — hostage behind it. The room list renders from bookmarks
     // and fills in as rooms come up.
     void s.reopenBookmarkedRooms()
+      .then(() => s.ensurePersonalVault())
       .then(() => s.listRoomSummaries())
       .then(setBookmarks)
       .catch(() => {})

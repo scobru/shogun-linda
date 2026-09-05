@@ -305,7 +305,7 @@ export class AppShell extends HTMLElement {
   private activeRoomUnsubscribes: Array<() => void> = []
   private renderedRoomId: string | null = null
   private renderedRoomWritable: boolean | null = null
-  private renderedActiveTab: 'chat' | 'files' = 'chat'
+  private renderedActiveTab: 'chat' | 'mailbox' | 'document' | 'files' = 'chat'
   private renderedModal: 'none' | 'new-group' | 'join-room' = 'none'
 
   connectedCallback(): void {

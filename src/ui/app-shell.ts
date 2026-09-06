@@ -230,7 +230,8 @@ const ICONS = {
   history: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>`,
   mail: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>`,
   document: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>`,
-  vault: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="7" x2="12" y2="9"/><line x1="12" y1="15" x2="12" y2="17"/><line x1="7" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="17" y2="12"/></svg>`
+  vault: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="7" x2="12" y2="9"/><line x1="12" y1="15" x2="12" y2="17"/><line x1="7" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="17" y2="12"/></svg>`,
+  arrowLeft: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>`
 }
 
 type View = 'create' | 'unlock' | 'recover' | 'reveal' | 'pair' | 'app'
@@ -260,6 +261,7 @@ export class AppShell extends HTMLElement {
   private activeHashtag: string | null = null
   private activeRoomTab: 'chat' | 'mailbox' | 'document' | 'files' = 'chat'
   private selectedMailboxMessageId: string | null = null
+  private mobileMailboxOpen = false
   private fileSearchQuery = ''
   private editingMessageId: string | null = null
   private activeFilter: FilterTab = 'all'
@@ -1779,6 +1781,7 @@ export class AppShell extends HTMLElement {
     this.querySelector('#roomTabMailbox')?.addEventListener('click', () => {
       this.activeRoomTab = 'mailbox'
       this.activeHashtag = null
+      this.mobileMailboxOpen = false
       this.renderApp()
     })
     this.querySelector('#roomTabDoc')?.addEventListener('click', () => {
@@ -1891,6 +1894,7 @@ export class AppShell extends HTMLElement {
     this.activeRoomName = name
     this.activeRoomTab = 'chat'
     this.selectedMailboxMessageId = null
+    this.mobileMailboxOpen = false
     this.fileSearchQuery = ''
     this.typingPeers.clear()
     this.readBy.clear()
@@ -2005,9 +2009,11 @@ export class AppShell extends HTMLElement {
 
     let newHtml = ''
     if (this.activeRoomTab === 'mailbox') {
-      newHtml = this.renderMailboxView(visible, byId)
+      const nonDeleted = visible.filter((m) => !m.deleted)
+      newHtml = this.renderMailboxView(nonDeleted, byId)
     } else if (this.activeRoomTab === 'document') {
-      newHtml = this.renderDocumentView(visible, byId)
+      const nonDeleted = visible.filter((m) => !m.deleted)
+      newHtml = this.renderDocumentView(nonDeleted, byId)
     } else {
       const htmlChunks: string[] = []
       for (let i = 0; i < visible.length; i++) {
@@ -2037,9 +2043,46 @@ export class AppShell extends HTMLElement {
     if (!room) return
 
     container.querySelectorAll<HTMLElement>('[data-mailbox-select]').forEach((el) => {
-      el.addEventListener('click', () => {
+      el.addEventListener('click', (e) => {
+        if ((e.target as HTMLElement).closest('[data-delete-msg]')) return
         this.selectedMailboxMessageId = el.dataset.mailboxSelect!
+        this.mobileMailboxOpen = true
         void this.renderMessages()
+      })
+    })
+
+    container.querySelectorAll<HTMLElement>('[data-mailbox-back]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        this.mobileMailboxOpen = false
+        void this.renderMessages()
+      })
+    })
+
+    container.querySelectorAll<HTMLElement>('[data-jump-to-msg]').forEach((el) => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation()
+        const targetId = el.dataset.jumpToMsg!
+        if (this.activeRoomTab === 'mailbox') {
+          this.selectedMailboxMessageId = targetId
+          this.mobileMailboxOpen = true
+          void this.renderMessages()
+        } else if (this.activeRoomTab === 'document') {
+          const targetEl = container.querySelector(`#doc-${targetId}`) as HTMLElement | null
+          if (targetEl) {
+            targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            targetEl.classList.add('highlight-pulse')
+            setTimeout(() => targetEl.classList.remove('highlight-pulse'), 1800)
+          }
+        } else {
+          const targetEl = container.querySelector(`[data-message-id="${targetId}"]`)?.closest('.msg-row') as HTMLElement | null
+            || container.querySelector(`[data-copy-msg="${targetId}"]`)?.closest('.msg-row') as HTMLElement | null
+            || container.querySelector(`[data-reply="${targetId}"]`)?.closest('.msg-row') as HTMLElement | null
+          if (targetEl) {
+            targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            targetEl.classList.add('highlight-pulse')
+            setTimeout(() => targetEl.classList.remove('highlight-pulse'), 1800)
+          }
+        }
       })
     })
 
@@ -2116,9 +2159,15 @@ export class AppShell extends HTMLElement {
     })
 
     container.querySelectorAll<HTMLButtonElement>('[data-delete-msg]').forEach((btn) => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation()
         if (!confirm('Delete this message? This cannot be undone.')) return
-        void this.session!.deleteMessage(room.id, btn.dataset.deleteMsg!)
+        const msgId = btn.dataset.deleteMsg!
+        if (this.selectedMailboxMessageId === msgId) {
+          this.mobileMailboxOpen = false
+          this.selectedMailboxMessageId = null
+        }
+        await this.session!.deleteMessage(room.id, msgId)
       })
     })
 
@@ -2261,6 +2310,51 @@ export class AppShell extends HTMLElement {
     const attachmentCard = selectedMsg.file && !selectedMsg.deleted
       ? this.renderAttachmentCard(selectedMsg)
       : ''
+    const canDeleteSelected = this.canDeleteMessage(selectedMsg)
+
+    // Quoted / parent email if this is a reply
+    let replyBannerHtml = ''
+    if (selectedMsg.replyTo && byId.get(selectedMsg.replyTo)) {
+      const parent = byId.get(selectedMsg.replyTo)!
+      const parentAuthor = this.displayName(parent.authorId)
+      const parentSubject = deriveSubject(parent)
+      const parentSnippet = (parent.body || (parent.file ? parent.file.name : '')).slice(0, 90)
+      replyBannerHtml = `
+        <div class="mailbox-in-reply-to" data-jump-to-msg="${parent.id}" title="Jump to parent message">
+          <div class="mailbox-in-reply-icon">${ICONS.reply}</div>
+          <div class="mailbox-in-reply-body">
+            <div class="mailbox-in-reply-head">
+              In reply to <strong>${escapeHtml(parentAuthor)}</strong>: <span class="mailbox-in-reply-subj">${escapeHtml(parentSubject)}</span>
+            </div>
+            ${parentSnippet ? `<div class="mailbox-in-reply-snippet">${escapeHtml(parentSnippet)}</div>` : ''}
+          </div>
+        </div>
+      `
+    }
+
+    // Thread replies: other non-deleted messages in room replying to this message
+    const threadReplies = messages.filter((m) => !m.deleted && m.replyTo === selectedMsg.id)
+    const threadRepliesHtml = threadReplies.length > 0 ? `
+      <div class="mailbox-thread-section">
+        <h4 class="mailbox-thread-title">${ICONS.reply} Replies in this conversation (${threadReplies.length})</h4>
+        <div class="mailbox-thread-list">
+          ${threadReplies.map((r) => {
+            const rAuthor = this.displayName(r.authorId)
+            const rTime = formatRelativeTime(r.timestamp)
+            const rSnippet = (r.body || (r.file ? r.file.name : '')).slice(0, 100)
+            return `
+              <div class="mailbox-thread-item" data-jump-to-msg="${r.id}" title="Open this reply">
+                <div class="mailbox-thread-item-header">
+                  <strong class="mailbox-thread-author">${escapeHtml(rAuthor)}</strong>
+                  <span class="mailbox-thread-time">${rTime}</span>
+                </div>
+                <div class="mailbox-thread-snippet">${escapeHtml(rSnippet)}</div>
+              </div>
+            `
+          }).join('')}
+        </div>
+      </div>
+    ` : ''
 
     const listHtml = sorted.map((msg) => {
       const isSel = msg.id === selectedId
@@ -2269,15 +2363,24 @@ export class AppShell extends HTMLElement {
       const msgTime = formatRelativeTime(msg.timestamp)
       const msgAvatar = this.avatars.get(msg.authorId) || this.session?.getPeerAvatar(msg.authorId) || (msg.authorId === this.identity!.id ? this.avatar : '')
       const hasAttach = !!(msg.file && !msg.deleted)
+      const isReply = !!(msg.replyTo && byId.get(msg.replyTo))
+      const canDel = this.canDeleteMessage(msg)
       return `
         <div class="mailbox-item ${isSel ? 'selected' : ''}" data-mailbox-select="${msg.id}">
           <div class="mailbox-item-avatar">${avatarHtml(msg.authorId, 'sm', msgAuthor, msgAvatar)}</div>
           <div class="mailbox-item-content">
             <div class="mailbox-item-header">
               <span class="mailbox-item-author">${escapeHtml(msgAuthor)}</span>
-              <span class="mailbox-item-time">${msgTime}</span>
+              <div class="mailbox-item-header-actions">
+                <span class="mailbox-item-time">${msgTime}</span>
+                ${canDel ? `<button class="mailbox-item-delete-btn" data-delete-msg="${msg.id}" title="Delete email">${ICONS.trash}</button>` : ''}
+              </div>
             </div>
-            <div class="mailbox-item-subject">${hasAttach ? `<span class="attach-icon">${ICONS.attach}</span> ` : ''}${escapeHtml(msgSubj)}</div>
+            <div class="mailbox-item-subject">
+              ${isReply ? `<span class="mailbox-reply-badge" title="Reply">${ICONS.reply}</span> ` : ''}
+              ${hasAttach ? `<span class="attach-icon">${ICONS.attach}</span> ` : ''}
+              ${escapeHtml(msgSubj)}
+            </div>
             <div class="mailbox-item-preview">${escapeHtml((msg.body || '').slice(0, 75))}</div>
           </div>
         </div>
@@ -2285,7 +2388,7 @@ export class AppShell extends HTMLElement {
     }).join('')
 
     return `
-      <div class="mailbox-container">
+      <div class="mailbox-container ${this.mobileMailboxOpen ? 'mobile-open' : ''}">
         <!-- Inbox Column -->
         <div class="mailbox-sidebar">
           <div class="mailbox-sidebar-header">
@@ -2299,14 +2402,19 @@ export class AppShell extends HTMLElement {
         <!-- Reading Pane -->
         <div class="mailbox-reading-pane">
           <div class="mailbox-pane-header">
+            <div class="mailbox-mobile-nav">
+              <button class="mailbox-back-btn" data-mailbox-back title="Back to Inbox">
+                ${ICONS.arrowLeft} <span>Inbox</span>
+              </button>
+            </div>
             <div class="mailbox-pane-subject-row">
               <h2 class="mailbox-pane-subject">${escapeHtml(selectedSubject)}</h2>
               <div class="mailbox-pane-actions">
-                <button class="ghost icon-sm" data-reply="${selectedMsg.id}" title="Reply to letter">${ICONS.reply} Reply</button>
+                <button class="ghost icon-sm" data-reply="${selectedMsg.id}" title="Reply to letter">${ICONS.reply} <span class="action-label">Reply</span></button>
                 <button class="ghost icon-sm" data-copy-msg="${selectedMsg.id}" title="Copy">${ICONS.copy}</button>
-                ${selectedMsg.authorId === this.identity!.id ? `
-                  <button class="ghost icon-sm" data-edit-msg="${selectedMsg.id}" title="Edit">${ICONS.edit}</button>
-                  <button class="ghost icon-sm" data-delete-msg="${selectedMsg.id}" title="Delete">${ICONS.trash}</button>
+                ${selectedMsg.authorId === this.identity!.id ? `<button class="ghost icon-sm" data-edit-msg="${selectedMsg.id}" title="Edit">${ICONS.edit}</button>` : ''}
+                ${canDeleteSelected ? `
+                  <button class="ghost icon-sm mailbox-action-delete" data-delete-msg="${selectedMsg.id}" title="Delete email">${ICONS.trash} <span class="action-label">Delete</span></button>
                 ` : ''}
               </div>
             </div>
@@ -2332,8 +2440,10 @@ export class AppShell extends HTMLElement {
           </div>
 
           <div class="mailbox-pane-body">
+            ${replyBannerHtml}
             <div class="mailbox-pane-text">${bodyFormatted}</div>
             ${attachmentCard ? `<div class="mailbox-pane-attachments"><h4>Attachments</h4>${attachmentCard}</div>` : ''}
+            ${threadRepliesHtml}
           </div>
 
           <div class="mailbox-pane-footer">
@@ -2377,12 +2487,30 @@ export class AppShell extends HTMLElement {
       const authorName = this.displayName(msg.authorId)
       const timeStr = formatMessageTime(msg.timestamp)
       const isMine = msg.authorId === this.identity!.id
+      const canDelete = this.canDeleteMessage(msg)
       const bodyFormatted = msg.deleted
         ? `<em style="color:var(--text-muted);">${ICONS.trash} Message deleted</em>`
         : (msg.body ? linkifyHashtags(linkify(escapeHtml(msg.body))) : '')
       const attachmentCard = msg.file && !msg.deleted
         ? this.renderAttachmentCard(msg)
         : ''
+
+      // Quoted note card if msg.replyTo points to an existing note
+      let quoteCardHtml = ''
+      if (msg.replyTo && byId.get(msg.replyTo)) {
+        const quoted = byId.get(msg.replyTo)!
+        const qAuthor = this.displayName(quoted.authorId)
+        const qSnippet = (quoted.body || (quoted.file ? quoted.file.name : 'Quoted note')).slice(0, 90)
+        quoteCardHtml = `
+          <div class="doc-quote-card" data-jump-to-msg="${quoted.id}" title="Jump to quoted note">
+            <div class="doc-quote-header">
+              <span class="doc-quote-icon">${ICONS.reply}</span>
+              <span class="doc-quote-author">${escapeHtml(qAuthor)}</span>
+            </div>
+            <div class="doc-quote-snippet">${escapeHtml(qSnippet)}</div>
+          </div>
+        `
+      }
 
       entriesHtml.push(`
         <article class="doc-entry" id="doc-${msg.id}">
@@ -2395,13 +2523,12 @@ export class AppShell extends HTMLElement {
             <div class="doc-entry-actions">
               ${msg.body ? `<button data-copy-msg="${msg.id}" title="Copy text">${ICONS.copy}</button>` : ''}
               <button data-reply="${msg.id}" title="Quote note">${ICONS.reply}</button>
-              ${isMine ? `
-                <button data-edit-msg="${msg.id}" title="Edit note">${ICONS.edit}</button>
-                <button data-delete-msg="${msg.id}" title="Delete note">${ICONS.trash}</button>
-              ` : ''}
+              ${isMine ? `<button data-edit-msg="${msg.id}" title="Edit note">${ICONS.edit}</button>` : ''}
+              ${canDelete ? `<button class="doc-action-delete" data-delete-msg="${msg.id}" title="Delete note">${ICONS.trash}</button>` : ''}
             </div>
           </header>
           <div class="doc-entry-content">
+            ${quoteCardHtml}
             <div class="doc-entry-body">${bodyFormatted}</div>
             ${attachmentCard ? `<div class="doc-entry-attachment">${attachmentCard}</div>` : ''}
           </div>
@@ -2444,7 +2571,7 @@ export class AppShell extends HTMLElement {
       ? (() => {
           const repliedMsg = byId.get(message.replyTo)!
           return `
-            <div class="keet-quote-card" title="Click to view quoted message">
+            <div class="keet-quote-card" data-jump-to-msg="${repliedMsg.id}" title="Click to view quoted message">
               <span class="quote-title">${escapeHtml(this.displayName(repliedMsg.authorId))}</span>
               <span class="quote-body">${escapeHtml(repliedMsg.body.slice(0, 60) || (repliedMsg.file ? `${ICONS.attach} ${repliedMsg.file.name}` : 'Message'))}</span>
             </div>
@@ -2952,6 +3079,13 @@ export class AppShell extends HTMLElement {
 
   private displayName(userId: string): string {
     return this.nicknames.get(userId) || userId.slice(0, 8)
+  }
+
+  private canDeleteMessage(msg: ChatMessage): boolean {
+    if (msg.authorId === this.identity?.id) return true
+    const room = this.activeRoom
+    if (!room || !this.identity) return false
+    return room.isOwner(this.identity.id) || room.isModerator(this.identity.id)
   }
 
   // --- Sub-Pages (Profile, Room Settings, Contacts, Discover, Pair) --------

@@ -654,6 +654,12 @@ export default function RoomChatScreen({ route, navigation }: Props) {
     setSelectedMessage(null)
   }, [selectedMessage, identityId, getAuthorName, deleteMessage])
 
+  const messagesById = useMemo(() => {
+    const map = new Map<string, ChatMessage>()
+    for (const m of messages) map.set(m.id, m)
+    return map
+  }, [messages])
+
   const replyMap = useMemo(() => {
     const map = new Map<string, string>()
     for (const m of messages) map.set(m.id, m.body.slice(0, 100))
@@ -662,6 +668,22 @@ export default function RoomChatScreen({ route, navigation }: Props) {
   const getReplyPreview = useCallback((replyToId?: string) => {
     return replyToId ? replyMap.get(replyToId) : undefined
   }, [replyMap])
+
+  const confirmDeleteMessage = useCallback((msgId: string) => {
+    Alert.alert('Delete message?', 'This cannot be undone.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          if (selectedMailboxMessage?.id === msgId) {
+            setSelectedMailboxMessage(null)
+          }
+          await deleteMessage(msgId)
+        },
+      },
+    ])
+  }, [deleteMessage, selectedMailboxMessage])
 
   // The handlers a row calls, read through a ref so the object handed to every row can keep the
   // same identity for the life of the screen while still calling this render's versions.
@@ -781,6 +803,8 @@ export default function RoomChatScreen({ route, navigation }: Props) {
               const subject = lines[0] || (item.file ? item.file.name : 'No subject')
               const snippet = lines.length > 1 ? lines.slice(1).join(' ').trim() : (item.file ? `${item.file.name} (${formatBytes(item.file.size)})` : '')
               const author = getAuthorName(item.authorId)
+              const isReply = !!(item.replyTo && messagesById.has(item.replyTo))
+              const canDel = item.authorId === identityId || isOwner
               return (
                 <Pressable
                   style={({ pressed }) => [styles.mailboxCard, pressed && styles.mailboxCardPressed]}
@@ -799,8 +823,25 @@ export default function RoomChatScreen({ route, navigation }: Props) {
                     <Text style={styles.mailboxTime}>
                       {new Date(item.timestamp).toLocaleDateString([], { month: 'short', day: 'numeric' })}
                     </Text>
+                    {canDel && (
+                      <Pressable
+                        hitSlop={8}
+                        onPress={() => confirmDeleteMessage(item.id)}
+                        style={{ marginLeft: 8, padding: 2 }}
+                        accessibilityLabel="Delete email"
+                      >
+                        <Ionicons name="trash-outline" size={15} color={colors.textTertiary} />
+                      </Pressable>
+                    )}
                   </View>
-                  <Text style={styles.mailboxSubject} numberOfLines={1}>{subject}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    {isReply && (
+                      <Ionicons name="arrow-undo-outline" size={13} color={colors.cyan} style={{ marginRight: 4 }} />
+                    )}
+                    <Text style={styles.mailboxSubject} numberOfLines={1}>
+                      {isReply && !subject.toLowerCase().startsWith('re:') ? `Re: ${subject}` : subject}
+                    </Text>
+                  </View>
                   {snippet ? (
                     <Text style={styles.mailboxSnippet} numberOfLines={2}>{snippet}</Text>
                   ) : null}
@@ -823,24 +864,65 @@ export default function RoomChatScreen({ route, navigation }: Props) {
                 <View style={styles.docDateDivider}>
                   <Text style={styles.docDateText}>{group.day}</Text>
                 </View>
-                {group.items.map((item) => (
-                  <View key={item.id} style={styles.docEntry}>
-                    <View style={styles.docMetaRow}>
-                      <Text style={styles.docAuthor}>{getAuthorName(item.authorId)}</Text>
-                      <Text style={styles.docTime}>
-                        {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </Text>
-                    </View>
-                    <Text style={styles.docBody} selectable>
-                      {item.body}
-                    </Text>
-                    {item.file && (
-                      <View style={{ marginTop: spacing.xs }}>
-                        {renderAttachment(item.file)}
+                {group.items.map((item) => {
+                  const isReply = !!(item.replyTo && messagesById.has(item.replyTo))
+                  const quoted = isReply && item.replyTo ? messagesById.get(item.replyTo) : undefined
+                  const canDel = item.authorId === identityId || isOwner
+                  return (
+                    <View key={item.id} style={styles.docEntry}>
+                      <View style={styles.docMetaRow}>
+                        <Text style={styles.docAuthor}>{getAuthorName(item.authorId)}</Text>
+                        <Text style={styles.docTime}>
+                          {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </Text>
+                        <View style={{ flex: 1 }} />
+                        <Pressable
+                          hitSlop={8}
+                          onPress={() => {
+                            setReplyTo({
+                              id: item.id,
+                              body: item.body,
+                              authorName: getAuthorName(item.authorId),
+                            })
+                          }}
+                          style={{ padding: 4, marginRight: 6 }}
+                          accessibilityLabel="Quote note"
+                        >
+                          <Ionicons name="arrow-undo-outline" size={15} color={colors.textSecondary} />
+                        </Pressable>
+                        {canDel && (
+                          <Pressable
+                            hitSlop={8}
+                            onPress={() => confirmDeleteMessage(item.id)}
+                            style={{ padding: 4 }}
+                            accessibilityLabel="Delete note"
+                          >
+                            <Ionicons name="trash-outline" size={15} color="#f43f5e" />
+                          </Pressable>
+                        )}
                       </View>
-                    )}
-                  </View>
-                ))}
+                      {quoted && (
+                        <View style={styles.docQuoteCard}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
+                            <Ionicons name="arrow-undo-outline" size={12} color={colors.cyan} style={{ marginRight: 4 }} />
+                            <Text style={styles.docQuoteAuthor}>{getAuthorName(quoted.authorId)}</Text>
+                          </View>
+                          <Text style={styles.docQuoteSnippet} numberOfLines={2}>
+                            {quoted.body || (quoted.file ? quoted.file.name : 'Quoted note')}
+                          </Text>
+                        </View>
+                      )}
+                      <Text style={styles.docBody} selectable>
+                        {item.body}
+                      </Text>
+                      {item.file && (
+                        <View style={{ marginTop: spacing.xs }}>
+                          {renderAttachment(item.file)}
+                        </View>
+                      )}
+                    </View>
+                  )
+                })}
               </View>
             ))}
             {docDayGroups.length === 0 && (
@@ -1148,7 +1230,18 @@ export default function RoomChatScreen({ route, navigation }: Props) {
               <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
             </Pressable>
             <Text style={styles.readerHeaderTitle}>Mailbox Message</Text>
-            <View style={{ width: 40 }} />
+            {selectedMailboxMessage && (selectedMailboxMessage.authorId === identityId || isOwner) ? (
+              <Pressable
+                onPress={() => confirmDeleteMessage(selectedMailboxMessage.id)}
+                hitSlop={8}
+                style={{ padding: 6 }}
+                accessibilityLabel="Delete email"
+              >
+                <Ionicons name="trash-outline" size={20} color="#f43f5e" />
+              </Pressable>
+            ) : (
+              <View style={{ width: 40 }} />
+            )}
           </View>
           {selectedMailboxMessage && (
             <View style={{ flex: 1 }}>
@@ -1178,6 +1271,32 @@ export default function RoomChatScreen({ route, navigation }: Props) {
                   </View>
                 </View>
 
+                {/* Quoted parent message */}
+                {selectedMailboxMessage.replyTo && messagesById.get(selectedMailboxMessage.replyTo) ? (() => {
+                  const parent = messagesById.get(selectedMailboxMessage.replyTo)!
+                  const pAuthor = getAuthorName(parent.authorId)
+                  const pLines = parent.body.trim().split('\n')
+                  const pSubj = pLines[0] || (parent.file ? parent.file.name : 'Message')
+                  return (
+                    <Pressable
+                      style={styles.readerReplyBanner}
+                      onPress={() => setSelectedMailboxMessage(parent)}
+                    >
+                      <Ionicons name="arrow-undo-outline" size={15} color={colors.cyan} style={{ marginRight: 6, marginTop: 2 }} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.readerReplyBannerTitle} numberOfLines={1}>
+                          In reply to <Text style={{ fontWeight: '700' }}>{pAuthor}</Text>: {pSubj}
+                        </Text>
+                        {parent.body ? (
+                          <Text style={styles.readerReplyBannerSnippet} numberOfLines={1}>
+                            {parent.body.slice(0, 80)}
+                          </Text>
+                        ) : null}
+                      </View>
+                    </Pressable>
+                  )
+                })() : null}
+
                 <View style={styles.readerBodyContainer}>
                   <Text style={styles.readerBody} selectable>
                     {selectedMailboxMessage.body}
@@ -1188,6 +1307,37 @@ export default function RoomChatScreen({ route, navigation }: Props) {
                     </View>
                   )}
                 </View>
+
+                {/* Thread replies */}
+                {(() => {
+                  const threadReplies = mailboxMessages.filter((m) => m.replyTo === selectedMailboxMessage.id)
+                  if (threadReplies.length === 0) return null
+                  return (
+                    <View style={styles.readerThreadSection}>
+                      <Text style={styles.readerThreadTitle}>Replies in this thread ({threadReplies.length})</Text>
+                      {threadReplies.map((r) => {
+                        const rAuthor = getAuthorName(r.authorId)
+                        return (
+                          <Pressable
+                            key={r.id}
+                            style={styles.readerThreadItem}
+                            onPress={() => setSelectedMailboxMessage(r)}
+                          >
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}>
+                              <Text style={styles.readerThreadAuthor}>{rAuthor}</Text>
+                              <Text style={styles.readerThreadTime}>
+                                {new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </Text>
+                            </View>
+                            <Text style={styles.readerThreadSnippet} numberOfLines={2}>
+                              {r.body || (r.file ? r.file.name : 'Reply')}
+                            </Text>
+                          </Pressable>
+                        )
+                      })}
+                    </View>
+                  )
+                })()}
               </ScrollView>
 
               {/* Quick Reply Bar */}
@@ -1637,6 +1787,79 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     backgroundColor: colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  readerReplyBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: colors.bgTertiary,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.cyan,
+    borderRadius: radii.sm,
+    padding: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  readerReplyBannerTitle: {
+    color: colors.textPrimary,
+    fontSize: typography.xs,
+  },
+  readerReplyBannerSnippet: {
+    color: colors.textSecondary,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  readerThreadSection: {
+    marginTop: spacing.lg,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  readerThreadTitle: {
+    color: colors.textSecondary,
+    fontSize: typography.xs,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: spacing.sm,
+  },
+  readerThreadItem: {
+    backgroundColor: colors.bgTertiary,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.accent,
+    borderRadius: radii.sm,
+    padding: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  readerThreadAuthor: {
+    color: colors.textPrimary,
+    fontSize: typography.xs,
+    fontWeight: '600',
+  },
+  readerThreadTime: {
+    color: colors.textTertiary,
+    fontSize: 10,
+  },
+  readerThreadSnippet: {
+    color: colors.textSecondary,
+    fontSize: typography.xs,
+    marginTop: 2,
+  },
+  docQuoteCard: {
+    backgroundColor: colors.bgTertiary,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.cyan,
+    borderRadius: radii.sm,
+    padding: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  docQuoteAuthor: {
+    color: colors.cyan,
+    fontSize: typography.xs,
+    fontWeight: '600',
+  },
+  docQuoteSnippet: {
+    color: colors.textSecondary,
+    fontSize: 11,
   },
   attachmentBox: {
     flexDirection: 'row',

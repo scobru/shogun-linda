@@ -723,30 +723,50 @@ export default function RoomChatScreen({ route, navigation }: Props) {
         <Pressable
           style={[styles.tabButton, activeTab === 'chat' && styles.tabButtonActive]}
           onPress={() => setActiveTab('chat')}
+          accessibilityLabel="Chat"
+          accessibilityRole="tab"
         >
-          <Ionicons name="chatbubble-outline" size={13} color={activeTab === 'chat' ? '#061e27' : colors.textSecondary} />
-          <Text style={[styles.tabText, activeTab === 'chat' && styles.tabTextActive]}>Chat</Text>
+          <Ionicons
+            name={activeTab === 'chat' ? 'chatbubble' : 'chatbubble-outline'}
+            size={18}
+            color={activeTab === 'chat' ? '#ffffff' : colors.textSecondary}
+          />
         </Pressable>
         <Pressable
           style={[styles.tabButton, activeTab === 'mailbox' && styles.tabButtonActive]}
           onPress={() => setActiveTab('mailbox')}
+          accessibilityLabel="Mailbox"
+          accessibilityRole="tab"
         >
-          <Ionicons name="mail-outline" size={13} color={activeTab === 'mailbox' ? '#061e27' : colors.textSecondary} />
-          <Text style={[styles.tabText, activeTab === 'mailbox' && styles.tabTextActive]}>Mailbox</Text>
+          <Ionicons
+            name={activeTab === 'mailbox' ? 'mail' : 'mail-outline'}
+            size={18}
+            color={activeTab === 'mailbox' ? '#ffffff' : colors.textSecondary}
+          />
         </Pressable>
         <Pressable
           style={[styles.tabButton, activeTab === 'document' && styles.tabButtonActive]}
           onPress={() => setActiveTab('document')}
+          accessibilityLabel="Notes"
+          accessibilityRole="tab"
         >
-          <Ionicons name="document-text-outline" size={13} color={activeTab === 'document' ? '#061e27' : colors.textSecondary} />
-          <Text style={[styles.tabText, activeTab === 'document' && styles.tabTextActive]}>Notes</Text>
+          <Ionicons
+            name={activeTab === 'document' ? 'document-text' : 'document-text-outline'}
+            size={18}
+            color={activeTab === 'document' ? '#ffffff' : colors.textSecondary}
+          />
         </Pressable>
         <Pressable
           style={[styles.tabButton, activeTab === 'files' && styles.tabButtonActive]}
           onPress={() => setActiveTab('files')}
+          accessibilityLabel="Files"
+          accessibilityRole="tab"
         >
-          <Ionicons name="folder-outline" size={13} color={activeTab === 'files' ? '#061e27' : colors.textSecondary} />
-          <Text style={[styles.tabText, activeTab === 'files' && styles.tabTextActive]}>Files</Text>
+          <Ionicons
+            name={activeTab === 'files' ? 'folder' : 'folder-outline'}
+            size={18}
+            color={activeTab === 'files' ? '#ffffff' : colors.textSecondary}
+          />
         </Pressable>
       </View>
 
@@ -1320,7 +1340,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   tabContainer: {
     flexDirection: 'row',
     backgroundColor: colors.bgSecondary,
-    padding: spacing.xs,
+    padding: 3,
     marginHorizontal: spacing.md,
     marginVertical: spacing.xs,
     borderRadius: radii.lg,
@@ -1329,23 +1349,13 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   tabButton: {
     flex: 1,
-    paddingVertical: spacing.sm,
-    flexDirection: 'row',
+    paddingVertical: 7,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.xs,
     borderRadius: radii.md,
   },
   tabButtonActive: {
     backgroundColor: colors.accent,
-  },
-  tabText: {
-    color: colors.textSecondary,
-    fontSize: typography.sm,
-    fontWeight: '600',
-  },
-  tabTextActive: {
-    color: '#000000',
   },
   filesToolbar: {
     flexDirection: 'row',

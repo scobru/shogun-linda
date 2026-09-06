@@ -200,6 +200,7 @@ const ICONS = {
   winMaximize: `<svg width="12" height="12" viewBox="0 0 12 12"><rect width="9" height="9" x="1.5" y="1.5" fill="none" stroke="currentColor"/></svg>`,
   winRestore: `<svg width="12" height="12" viewBox="0 0 12 12"><rect width="7" height="7" x="3.5" y="1.5" fill="none" stroke="currentColor"/><path d="M1.5 3.5v7h7" fill="none" stroke="currentColor"/></svg>`,
   winClose: `<svg width="12" height="12" viewBox="0 0 12 12"><path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.2"/></svg>`,
+  close: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
   user: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
   userPlus: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>`,
   folder: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`,
@@ -1592,34 +1593,40 @@ export class AppShell extends HTMLElement {
 
   private replyBarHtml(): string {
     if (this.selectionMode) {
+      const count = this.selectedMessageIds.size
       return `
-        <div class="reply-bar">
-          <div class="reply-bar-text">
-            <span>${this.selectedMessageIds.size} selected</span>
+        <div class="reply-bar selection-bar">
+          <div class="selection-bar-info">
+            <span class="selection-pill">${count}</span>
+            <span class="selection-label">${count === 1 ? 'message selected' : 'messages selected'}</span>
           </div>
-          <button class="ghost icon-sm" id="batchDeleteBtn" style="color:var(--danger);" ${this.selectedMessageIds.size === 0 ? 'disabled' : ''}>${ICONS.trash} Delete</button>
-          <button class="cancel" id="cancelSelection" title="Cancel selection">✕</button>
+          <div class="selection-bar-actions">
+            <button class="batch-delete-btn" id="batchDeleteBtn" ${count === 0 ? 'disabled' : ''}>
+              ${ICONS.trash} <span>Delete ${count > 0 ? `(${count})` : ''}</span>
+            </button>
+            <button class="cancel-action-btn" id="cancelSelection" title="Cancel selection">${ICONS.close}</button>
+          </div>
         </div>
       `
     }
     if (this.editingMessage) {
       return `
         <div class="reply-bar">
-          <div class="reply-bar-text">
-            <span>Editing message</span>
+          <div class="reply-bar-text" style="display:flex;align-items:center;gap:0.4rem;font-size:0.85rem;color:var(--cyan-accent);font-weight:600;">
+            ${ICONS.edit} <span>Editing message</span>
           </div>
-          <button class="cancel" id="cancelEdit" title="Cancel edit">✕</button>
+          <button class="cancel-action-btn" id="cancelEdit" title="Cancel edit">${ICONS.close}</button>
         </div>
       `
     }
     if (this.replyingTo) {
       return `
         <div class="reply-bar">
-          <div class="reply-bar-text">
-            <span>Replying to <strong class="quote-author">${escapeHtml(this.displayName(this.replyingTo.authorId))}</strong>:</span>
-            <span class="reply-snippet">${escapeHtml(this.replyingTo.body.slice(0, 60))}</span>
+          <div class="reply-bar-text" style="display:flex;align-items:center;gap:0.5rem;min-width:0;flex:1;">
+            <span style="color:var(--cyan-accent);font-size:0.82rem;font-weight:600;flex-shrink:0;">${ICONS.reply} Replying to <strong class="quote-author">${escapeHtml(this.displayName(this.replyingTo.authorId))}</strong>:</span>
+            <span class="reply-snippet" style="font-size:0.82rem;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(this.replyingTo.body.slice(0, 60))}</span>
           </div>
-          <button class="cancel" id="cancelReply" title="Cancel reply">✕</button>
+          <button class="cancel-action-btn" id="cancelReply" title="Cancel reply">${ICONS.close}</button>
         </div>
       `
     }
@@ -1677,10 +1684,10 @@ export class AppShell extends HTMLElement {
 
         ${`
           <div class="room-header-tabs" style="display:inline-flex;align-items:center;gap:0.25rem;background:var(--bg-subtle);border:1px solid var(--border);border-radius:20px;padding:2px 4px;margin-left:auto;margin-right:0.75rem;">
-            <button class="room-tab-pill ${this.activeRoomTab === 'chat' ? 'active' : ''}" id="roomTabChat" style="background:${this.activeRoomTab === 'chat' ? 'var(--accent)' : 'transparent'};color:${this.activeRoomTab === 'chat' ? '#fff' : 'var(--text-dim)'};border:none;padding:0.25rem 0.6rem;border-radius:16px;font-size:0.75rem;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:0.3rem;">${ICONS.chatSmall} Chat</button>
-            <button class="room-tab-pill ${this.activeRoomTab === 'mailbox' ? 'active' : ''}" id="roomTabMailbox" style="background:${this.activeRoomTab === 'mailbox' ? 'var(--accent)' : 'transparent'};color:${this.activeRoomTab === 'mailbox' ? '#fff' : 'var(--text-dim)'};border:none;padding:0.25rem 0.6rem;border-radius:16px;font-size:0.75rem;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:0.3rem;">${ICONS.mail} Mailbox</button>
-            <button class="room-tab-pill ${this.activeRoomTab === 'document' ? 'active' : ''}" id="roomTabDoc" style="background:${this.activeRoomTab === 'document' ? 'var(--accent)' : 'transparent'};color:${this.activeRoomTab === 'document' ? '#fff' : 'var(--text-dim)'};border:none;padding:0.25rem 0.6rem;border-radius:16px;font-size:0.75rem;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:0.3rem;">${ICONS.document} Notes</button>
-            <button class="room-tab-pill ${this.activeRoomTab === 'files' ? 'active' : ''}" id="roomTabFiles" style="background:${this.activeRoomTab === 'files' ? 'var(--accent)' : 'transparent'};color:${this.activeRoomTab === 'files' ? '#fff' : 'var(--text-dim)'};border:none;padding:0.25rem 0.6rem;border-radius:16px;font-size:0.75rem;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:0.3rem;">${ICONS.folder} Files</button>
+            <button class="room-tab-pill ${this.activeRoomTab === 'chat' ? 'active' : ''}" id="roomTabChat" title="Chat" style="background:${this.activeRoomTab === 'chat' ? 'var(--accent)' : 'transparent'};color:${this.activeRoomTab === 'chat' ? '#fff' : 'var(--text-dim)'};border:none;padding:0.25rem 0.6rem;border-radius:16px;font-size:0.75rem;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:0.3rem;">${ICONS.chatSmall} <span class="tab-label">Chat</span></button>
+            <button class="room-tab-pill ${this.activeRoomTab === 'mailbox' ? 'active' : ''}" id="roomTabMailbox" title="Mailbox" style="background:${this.activeRoomTab === 'mailbox' ? 'var(--accent)' : 'transparent'};color:${this.activeRoomTab === 'mailbox' ? '#fff' : 'var(--text-dim)'};border:none;padding:0.25rem 0.6rem;border-radius:16px;font-size:0.75rem;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:0.3rem;">${ICONS.mail} <span class="tab-label">Mailbox</span></button>
+            <button class="room-tab-pill ${this.activeRoomTab === 'document' ? 'active' : ''}" id="roomTabDoc" title="Notes" style="background:${this.activeRoomTab === 'document' ? 'var(--accent)' : 'transparent'};color:${this.activeRoomTab === 'document' ? '#fff' : 'var(--text-dim)'};border:none;padding:0.25rem 0.6rem;border-radius:16px;font-size:0.75rem;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:0.3rem;">${ICONS.document} <span class="tab-label">Notes</span></button>
+            <button class="room-tab-pill ${this.activeRoomTab === 'files' ? 'active' : ''}" id="roomTabFiles" title="Files" style="background:${this.activeRoomTab === 'files' ? 'var(--accent)' : 'transparent'};color:${this.activeRoomTab === 'files' ? '#fff' : 'var(--text-dim)'};border:none;padding:0.25rem 0.6rem;border-radius:16px;font-size:0.75rem;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:0.3rem;">${ICONS.folder} <span class="tab-label">Files</span></button>
           </div>
         `}
 
@@ -2066,6 +2073,13 @@ export class AppShell extends HTMLElement {
       })
     })
 
+    container.querySelectorAll<HTMLElement>('[data-view-image]').forEach((card) => {
+      card.addEventListener('click', (e) => {
+        if ((e.target as HTMLElement).closest('[data-download]')) return
+        this.openImageLightbox(card.dataset.viewImage!, card.dataset.path!, card.dataset.name!, card.dataset.thumb)
+      })
+    })
+
     // Tapping a tag inside a message is the same action as tapping its pill above.
     container.querySelectorAll<HTMLElement>('[data-hashtag]').forEach((el) => {
       el.addEventListener('click', () => {
@@ -2164,13 +2178,19 @@ export class AppShell extends HTMLElement {
     } else if (isImg) {
       const thumbSrc = message.file.thumbnail || this.remoteImageCache.get(`${message.file.driveKey}:${message.file.path}`) || ''
       return `
-        <div class="msg-image-card">
+        <div class="msg-image-card" data-view-image="${message.file.driveKey}" data-path="${message.file.path}" data-name="${escapeHtml(message.file.name)}" data-thumb="${thumbSrc}" title="Click to view full image">
           <div class="msg-image-thumb-wrap">
             <img src="${thumbSrc || 'data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'100\' height=\'100\' fill=\'%231f293d\'><rect width=\'100\' height=\'100\'/><text x=\'50\' y=\'55\' fill=\'%2364748b\' font-size=\'14\' text-anchor=\'middle\'>Loading…</text></svg>'}" alt="${escapeHtml(message.file.name)}" class="msg-image-thumb" />
+            <div class="msg-image-overlay-badge">
+              <span>${ICONS.search} View</span>
+            </div>
           </div>
           <div class="msg-image-footer">
-            <span class="file-name" style="font-size:0.75rem;color:var(--text-dim);">${escapeHtml(message.file.name)}</span>
-            <button class="primary" style="padding:0.25rem 0.55rem;font-size:0.7rem;" data-download="${message.file.driveKey}" data-name="${message.file.name}" data-path="${message.file.path}">Download</button>
+            <div class="msg-image-info">
+              <span class="file-name" title="${escapeHtml(message.file.name)}">${escapeHtml(message.file.name)}</span>
+              ${message.file.size ? `<span class="file-size">${formatBytes(message.file.size)}</span>` : ''}
+            </div>
+            <button class="ghost icon-sm msg-download-btn" data-download="${message.file.driveKey}" data-name="${message.file.name}" data-path="${message.file.path}" title="Download">${ICONS.download}</button>
           </div>
         </div>
       `
@@ -2191,12 +2211,15 @@ export class AppShell extends HTMLElement {
       `
     } else {
       return `
-        <div class="file-chip" style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem;background:var(--bg-panel);border:1px solid var(--border-card);border-radius:4px;margin-top:0.3rem;">
+        <div class="file-chip">
+          <div style="width:34px;height:34px;border-radius:var(--radius-sm);background:var(--bg-subtle);display:flex;align-items:center;justify-content:center;color:var(--cyan-accent);flex-shrink:0;">
+            ${ICONS.file}
+          </div>
           <div style="flex:1;min-width:0">
-            <div style="font-weight:600;font-size:0.8rem;">${escapeHtml(message.file.name)}</div>
+            <div style="font-weight:600;font-size:0.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(message.file.name)}">${escapeHtml(message.file.name)}</div>
             <div style="color:var(--text-muted);font-size:0.7rem;">${formatBytes(message.file.size)} • P2P</div>
           </div>
-          <button class="primary" style="padding:0.25rem 0.6rem;font-size:0.75rem;" data-download="${message.file.driveKey}" data-name="${message.file.name}" data-path="${message.file.path}">Download</button>
+          <button class="ghost icon-sm msg-download-btn" data-download="${message.file.driveKey}" data-name="${message.file.name}" data-path="${message.file.path}" title="Download">${ICONS.download}</button>
         </div>
       `
     }
@@ -2459,11 +2482,11 @@ export class AppShell extends HTMLElement {
 
     const selected = this.selectedMessageIds.has(message.id)
     const selectCheckbox = this.selectionMode && mine
-      ? `<button class="icon ghost icon-sm" data-toggle-select="${message.id}" title="${selected ? 'Deselect' : 'Select'}" style="align-self:center;color:${selected ? 'var(--accent)' : 'var(--text-dim)'};">${selected ? ICONS.check : '○'}</button>`
+      ? `<button class="msg-select-check ${selected ? 'checked' : ''}" data-toggle-select="${message.id}" title="${selected ? 'Deselect' : 'Select'}">${selected ? ICONS.check : ''}</button>`
       : ''
 
     return `
-      <div class="msg-row ${mine ? 'mine' : ''}" style="${selected ? 'opacity:0.7;' : ''}">
+      <div class="msg-row ${mine ? 'mine' : ''} ${selected ? 'is-selected' : ''}" style="${selected ? 'opacity:0.85;' : ''}">
         ${selectCheckbox}
         ${!mine ? `<div class="msg-row-avatar">${avatar}</div>` : ''}
         <div class="msg-group">
@@ -2652,6 +2675,44 @@ export class AppShell extends HTMLElement {
     document.body.appendChild(overlay)
 
     void this.mediaUrl(driveKeyHex, drivePath).then((url) => { video.src = url })
+  }
+
+  private openImageLightbox(driveKeyHex: string, drivePath: string, name: string, fallbackThumb?: string): void {
+    const overlay = document.createElement('div')
+    overlay.className = 'image-lightbox-overlay'
+    overlay.innerHTML = `
+      <div class="image-lightbox-bar">
+        <span class="image-lightbox-title">${escapeHtml(name)}</span>
+        <div class="image-lightbox-actions">
+          <button class="ghost icon-sm" id="lightboxDownloadBtn" title="Download image">${ICONS.download}</button>
+          <button class="cancel-action-btn" id="lightboxCloseBtn" title="Close">${ICONS.close}</button>
+        </div>
+      </div>
+      <div class="image-lightbox-content">
+        <img class="image-lightbox-img" src="${fallbackThumb || ''}" alt="${escapeHtml(name)}" />
+      </div>
+    `
+    const img = overlay.querySelector('.image-lightbox-img') as HTMLImageElement
+    const close = () => {
+      overlay.remove()
+      document.removeEventListener('keydown', onKey)
+    }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close() }
+    overlay.querySelector('#lightboxCloseBtn')!.addEventListener('click', close)
+    overlay.querySelector('#lightboxDownloadBtn')!.addEventListener('click', () => {
+      void this.downloadFile(driveKeyHex, name, drivePath)
+    })
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay || (e.target as HTMLElement).classList.contains('image-lightbox-content')) close()
+    })
+    document.addEventListener('keydown', onKey)
+    document.body.appendChild(overlay)
+
+    void this.mediaUrl(driveKeyHex, drivePath).then((url) => {
+      img.src = url
+    }).catch(() => {
+      if (!img.src && fallbackThumb) img.src = fallbackThumb
+    })
   }
 
   /** Swallows the reason a fetch failed — only for callers with nowhere useful to show it
